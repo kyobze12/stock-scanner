@@ -32,5 +32,5 @@ npm run build      # src/ -> dist/
 
 - `src/app.js` is the whole app (React + htm, Tailwind classes), `src/styles.css` the theme tokens and animations.
 - `tools/build.mjs` compiles the CSS, minifies the script, copies React/ZXing/fonts so everything is served from the same site, and generates the service worker.
-- `dist/` is committed; `.github/workflows/pages.yml` publishes it to GitHub Pages on every push to `main`.
+- `dist/` is committed. If Pages is set to **GitHub Actions**, `.github/workflows/pages.yml` publishes it at the site's root on every push to `main`. If Pages is set to **Deploy from a branch**, the root `index.html` forwards visitors (and the `#connect=` setup link) to `dist/`, so both settings work.
 - The page's Content-Security-Policy only allows this site plus `script.google.com`.

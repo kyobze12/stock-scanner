@@ -1,6 +1,6 @@
 name: Publish app
 
-# Publishes the app to GitHub Pages every time main changes (and when run by hand).
+# Publishes the built app (the dist folder, made with `npm run build`) to GitHub Pages every time main changes.
 on:
   push:
     branches: [main]
@@ -28,6 +28,6 @@ jobs:
           enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: dist
       - id: deployment
         uses: actions/deploy-pages@v4

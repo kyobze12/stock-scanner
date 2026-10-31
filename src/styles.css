@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fonts are served from this site (see tools/build.mjs). The system fallbacks are size-adjusted so text doesn't jump when the web fonts arrive. */
+@font-face { font-family: "Bricolage Grotesque"; src: url("fonts/bricolage-grotesque-latin-wght-normal.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
+@font-face { font-family: "Public Sans"; src: url("fonts/public-sans-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("fonts/ibm-plex-mono-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Bricolage Fallback"; src: local("Arial"); size-adjust: 104%; ascent-override: 92%; descent-override: 24%; }
+@font-face { font-family: "Public Sans Fallback"; src: local("Arial"); size-adjust: 102%; ascent-override: 94%; descent-override: 24%; }
+
+/* Theme tokens, keyframes and the few effects utilities can't express; everything else is Tailwind in the components.
+   Layout: a quiet home screen (animated barcode emblem, scan button, search pill); search with filters, item details
+   and the scanner each open as full-screen layers above it. */
+:root {
+  --bg: #eef3f1; --surface: #ffffff; --surface-2: #e2eae6; --fg: #0f1d17; --muted: #55675e; --line: #d2ddd7;
+  --accent: #10855a; --accent-2: #0e8fa0; --accent-ink: #ffffff; --accent-soft: #cfe9de; --laser: #ff3b5c;
+  --warn: #9a5b00; --warn-soft: #fbe9cc; --bad: #b3261e; --bad-soft: #f8dcd9;
+  --glow-a: rgba(16,133,90,.22); --glow-b: rgba(14,143,160,.18);
+  --shadow: 0 1px 2px rgba(15,29,23,.05), 0 10px 30px rgba(15,29,23,.08);
+  --f-display: "Bricolage Grotesque", "Bricolage Fallback", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Public Sans", "Public Sans Fallback", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #07110e; --surface: #0f1b17; --surface-2: #16251f; --fg: #e6f0eb; --muted: #8fa59a; --line: #213530;
+    --accent: #3ddc97; --accent-2: #2ec5d8; --accent-ink: #03140d; --accent-soft: #123a2b; --laser: #ff4d6d;
+    --warn: #f0a640; --warn-soft: #3a2a10; --bad: #ff7b72; --bad-soft: #3d1a18;
+    --glow-a: rgba(61,220,151,.20); --glow-b: rgba(46,197,216,.16);
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #07110e; --surface: #0f1b17; --surface-2: #16251f; --fg: #e6f0eb; --muted: #8fa59a; --line: #213530;
+  --accent: #3ddc97; --accent-2: #2ec5d8; --accent-ink: #03140d; --accent-soft: #123a2b; --laser: #ff4d6d;
+  --warn: #f0a640; --warn-soft: #3a2a10; --bad: #ff7b72; --bad-soft: #3d1a18;
+  --glow-a: rgba(61,220,151,.20); --glow-b: rgba(46,197,216,.16);
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35); color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); }
+[hidden] { display: none !important; }
+.gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+.top-safe { top: env(safe-area-inset-top, 0px); }
+.no-scrollbar { scrollbar-width: none; } .no-scrollbar::-webkit-scrollbar { display: none; }
+.grad-text { background: linear-gradient(100deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.grad-fill { background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Home: drifting aurora behind the emblem */
+.aurora { position: fixed; z-index: 0; inset: -20% -30% auto; height: 70%; pointer-events: none; filter: blur(40px); opacity: .9;
+  background: radial-gradient(40% 50% at 30% 40%, var(--glow-a), transparent 70%), radial-gradient(35% 45% at 70% 50%, var(--glow-b), transparent 70%);
+  animation: drift 14s ease-in-out infinite alternate; }
+@keyframes drift { from { transform: translate3d(-4%, 0, 0) scale(1); } to { transform: translate3d(4%, 3%, 0) scale(1.08); } }
+
+/* Home emblem: bars breathe and a beam sweeps across them */
+.emblem-bar { transform-origin: 50% 100%; animation: breathe 2.6s ease-in-out infinite; }
+@keyframes breathe { 0%, 100% { transform: scaleY(.82); opacity: .55; } 50% { transform: scaleY(1); opacity: 1; } }
+.emblem-beam { animation: beam 2.4s cubic-bezier(.65,0,.35,1) infinite alternate; }
+@keyframes beam { from { transform: translateY(6px); } to { transform: translateY(112px); } }
+
+/* Scan button: soft rings pulse outward */
+.ring { position: absolute; inset: 0; border-radius: 9999px; border: 2px solid var(--accent); opacity: 0; animation: ring 2.8s cubic-bezier(.2,.6,.3,1) infinite; }
+.ring:nth-child(2) { animation-delay: .9s; } .ring:nth-child(3) { animation-delay: 1.8s; }
+@keyframes ring { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(1.9); opacity: 0; } }
+
+/* Scanner viewfinder */
+.vf-mask { box-shadow: 0 0 0 200vmax rgba(2,8,6,.62); }
+.vf-corner { position: absolute; width: 34px; height: 34px; border-color: #fff; border-style: solid; filter: drop-shadow(0 0 6px rgba(61,220,151,.7)); transition: border-color .2s, transform .3s; }
+.vf-live .vf-corner { animation: corner 2.2s ease-in-out infinite; }
+@keyframes corner { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(var(--dx), var(--dy)); } }
+.vf-hit .vf-corner { border-color: #3ddc97; animation: none; }
+.vf-beam { position: absolute; left: 4%; right: 4%; height: 70px; top: 0; background: linear-gradient(to bottom, transparent, rgba(255,77,109,.18) 70%, rgba(255,77,109,.0));
+  border-bottom: 2px solid #ff4d6d; box-shadow: 0 6px 18px -2px rgba(255,77,109,.8); animation: vfbeam 1.9s cubic-bezier(.65,0,.35,1) infinite alternate; }
+@keyframes vfbeam { from { transform: translateY(-50px); } to { transform: translateY(calc(var(--vf-h, 220px) - 20px)); } }
+.vf-grid { position: absolute; inset: 0; opacity: .14; background-image: linear-gradient(rgba(255,255,255,.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.6) 1px, transparent 1px); background-size: 22px 22px; mask-image: radial-gradient(closest-side, #000, transparent); }
+.flash { animation: flash .5s ease-out forwards; }
+@keyframes flash { from { opacity: .85; } to { opacity: 0; } }
+.pop { animation: pop .45s cubic-bezier(.2,1.4,.4,1) both; }
+@keyframes pop { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.shake { animation: shake .45s ease-in-out; }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+.layer-in { animation: layer .28s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes layer { from { transform: translateY(28px); opacity: 0; } to { transform: none; opacity: 1; } }
+.fade-in { animation: fade .35s ease both; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+.sheet-in { animation: layer .24s ease-out both; }
+.skeleton { background: linear-gradient(90deg, var(--surface-2), var(--line), var(--surface-2)); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .aurora, .emblem-bar, .emblem-beam, .ring, .vf-corner, .vf-beam, .layer-in, .fade-in, .sheet-in, .pop, .shake, .skeleton { animation: none !important; }
+  .ring { display: none; }
+}
+
+.boot { padding-block: 40px; text-align: center; color: var(--muted); }
+
+/* The search box draws its own focus ring on the rounded container, and has its own clear button. */
+input[type="search"]:focus-visible { outline: none; }
+input[type="search"]::-webkit-search-cancel-button, input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }

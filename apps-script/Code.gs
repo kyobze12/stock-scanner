@@ -20,7 +20,9 @@ function doGet(e) {
     switch (p.action) {
       case "meta": {
         const lastCol = sh.getLastColumn();
-        return { tab: sh.getName(), lastRow: sh.getLastRow(), header: sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0] };
+        // "updated" lets the app skip re-downloading all items when nothing changed since the last visit.
+        const updated = DriveApp.getFileById(SpreadsheetApp.getActiveSpreadsheet().getId()).getLastUpdated().toISOString();
+        return { tab: sh.getName(), lastRow: sh.getLastRow(), updated, header: sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0] };
       }
       case "index": {
         // Rows start..start+count-1, only the requested column indexes (0-based), as displayed text.
@@ -47,6 +49,12 @@ function doGet(e) {
           if (hit) return { row: hit.getRow() };
         }
         return { row: null };
+      }
+      case "photos": {
+        // Which items have a photo, so the app only asks for photos that exist.
+        const codes = [], it = folder_().getFiles();
+        while (it.hasNext()) { const n = it.next().getName(); if (/^item-.*\.jpg$/.test(n)) codes.push(decodeURIComponent(n.slice(5, -4))); }
+        return { codes };
       }
       case "photo": {
         const file = photoFile_(p.code);

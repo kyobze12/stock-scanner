@@ -1,0 +1,21 @@
+{
+  "name": "ftc-stock-scanner",
+  "private": true,
+  "version": "2.0.0",
+  "description": "Phone barcode scanner for the Farmers Trading Center item sheet",
+  "scripts": {
+    "build": "node tools/build.mjs"
+  },
+  "devDependencies": {
+    "@fontsource-variable/bricolage-grotesque": "5.1.0",
+    "@fontsource-variable/public-sans": "5.1.0",
+    "@fontsource/ibm-plex-mono": "5.1.0",
+    "@zxing/library": "0.21.3",
+    "axe-core": "^4.10.2",
+    "esbuild": "0.24.0",
+    "htm": "3.1.1",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "tailwindcss": "3.4.17"
+  }
+}

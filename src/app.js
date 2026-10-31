@@ -1,153 +1,24 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>FTC Stock Scanner</title>
-<meta name="description" content="Scan barcodes to see price, stock and details from the Farmers Trading Center item sheet.">
-<meta name="theme-color" content="#07110e">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Stock Scanner">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="icon-180.png">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap">
-<script src="https://cdn.tailwindcss.com/3.4.17"></script>
-<script>
-  // Tailwind utilities read the theme tokens below, so every class works in light and dark.
-  tailwind.config = {
-    theme: {
-      extend: {
-        colors: {
-          bg: "var(--bg)", surface: "var(--surface)", surface2: "var(--surface-2)", fg: "var(--fg)", muted: "var(--muted)",
-          line: "var(--line)", accent: "var(--accent)", accent2: "var(--accent-2)", "accent-ink": "var(--accent-ink)", "accent-soft": "var(--accent-soft)",
-          laser: "var(--laser)", warn: "var(--warn)", "warn-soft": "var(--warn-soft)", bad: "var(--bad)", "bad-soft": "var(--bad-soft)"
-        },
-        fontFamily: { display: "var(--f-display)", body: "var(--f-body)", mono: "var(--f-mono)" },
-        boxShadow: { card: "var(--shadow)", glow: "0 0 0 1px var(--accent-soft), 0 12px 40px -8px var(--accent)" }
-      }
-    }
-  };
-</script>
-<script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" integrity="sha384-tMH8h3BGESGckSAVGZ82T9n90ztNXxvdwvdM6UoR56cYcf+0iGXBliJ29D+wZ/x8" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" integrity="sha384-bm7MnzvK++ykSwVJ2tynSE5TRdN+xL418osEVF2DE/L/gfWHj91J2Sphe582B1Bh" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/htm@3.1.1/dist/htm.umd.js" integrity="sha384-toVdrLSMaw7Y55MowcKqkmFL/Ek6Sky62NOk0b5sDDZBu2wcoPyyQUt9unDVjXhL" crossorigin="anonymous"></script>
-<style>
-/* Theme tokens, keyframes and the few effects utilities can't express; everything else is Tailwind in the components.
-   Layout: a quiet home screen (animated barcode emblem, scan button, search pill); search with filters, item details
-   and the scanner each open as full-screen layers above it. */
-:root {
-  --bg: #eef3f1; --surface: #ffffff; --surface-2: #e2eae6; --fg: #0f1d17; --muted: #55675e; --line: #d2ddd7;
-  --accent: #10855a; --accent-2: #0e8fa0; --accent-ink: #ffffff; --accent-soft: #cfe9de; --laser: #ff3b5c;
-  --warn: #9a5b00; --warn-soft: #fbe9cc; --bad: #b3261e; --bad-soft: #f8dcd9;
-  --glow-a: rgba(16,133,90,.22); --glow-b: rgba(14,143,160,.18);
-  --shadow: 0 1px 2px rgba(15,29,23,.05), 0 10px 30px rgba(15,29,23,.08);
-  --f-display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
-  --f-body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #07110e; --surface: #0f1b17; --surface-2: #16251f; --fg: #e6f0eb; --muted: #8fa59a; --line: #213530;
-    --accent: #3ddc97; --accent-2: #2ec5d8; --accent-ink: #03140d; --accent-soft: #123a2b; --laser: #ff4d6d;
-    --warn: #f0a640; --warn-soft: #3a2a10; --bad: #ff7b72; --bad-soft: #3d1a18;
-    --glow-a: rgba(61,220,151,.20); --glow-b: rgba(46,197,216,.16);
-    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35); color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #07110e; --surface: #0f1b17; --surface-2: #16251f; --fg: #e6f0eb; --muted: #8fa59a; --line: #213530;
-  --accent: #3ddc97; --accent-2: #2ec5d8; --accent-ink: #03140d; --accent-soft: #123a2b; --laser: #ff4d6d;
-  --warn: #f0a640; --warn-soft: #3a2a10; --bad: #ff7b72; --bad-soft: #3d1a18;
-  --glow-a: rgba(61,220,151,.20); --glow-b: rgba(46,197,216,.16);
-  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35); color-scheme: dark;
-}
-html, body { height: 100%; margin: 0; }
-* { box-sizing: border-box; }
-body { background: var(--bg); color: var(--fg); font-family: var(--f-body); -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
-body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); }
-[hidden] { display: none !important; }
-.gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
-.pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
-.pt-safe { padding-top: env(safe-area-inset-top, 0px); }
-.top-safe { top: env(safe-area-inset-top, 0px); }
-.no-scrollbar { scrollbar-width: none; } .no-scrollbar::-webkit-scrollbar { display: none; }
-.grad-text { background: linear-gradient(100deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.grad-fill { background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-/* Home: drifting aurora behind the emblem */
-.aurora { position: absolute; inset: -20% -30% auto; height: 70%; pointer-events: none; filter: blur(40px); opacity: .9;
-  background: radial-gradient(40% 50% at 30% 40%, var(--glow-a), transparent 70%), radial-gradient(35% 45% at 70% 50%, var(--glow-b), transparent 70%);
-  animation: drift 14s ease-in-out infinite alternate; }
-@keyframes drift { from { transform: translate3d(-4%, 0, 0) scale(1); } to { transform: translate3d(4%, 3%, 0) scale(1.08); } }
-
-/* Home emblem: bars breathe and a beam sweeps across them */
-.emblem-bar { transform-origin: 50% 100%; animation: breathe 2.6s ease-in-out infinite; }
-@keyframes breathe { 0%, 100% { transform: scaleY(.82); opacity: .55; } 50% { transform: scaleY(1); opacity: 1; } }
-.emblem-beam { animation: beam 2.4s cubic-bezier(.65,0,.35,1) infinite alternate; }
-@keyframes beam { from { transform: translateY(6px); } to { transform: translateY(112px); } }
-
-/* Scan button: soft rings pulse outward */
-.ring { position: absolute; inset: 0; border-radius: 9999px; border: 2px solid var(--accent); opacity: 0; animation: ring 2.8s cubic-bezier(.2,.6,.3,1) infinite; }
-.ring:nth-child(2) { animation-delay: .9s; } .ring:nth-child(3) { animation-delay: 1.8s; }
-@keyframes ring { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(1.9); opacity: 0; } }
-
-/* Scanner viewfinder */
-.vf-mask { box-shadow: 0 0 0 200vmax rgba(2,8,6,.62); }
-.vf-corner { position: absolute; width: 34px; height: 34px; border-color: #fff; border-style: solid; filter: drop-shadow(0 0 6px rgba(61,220,151,.7)); transition: border-color .2s, transform .3s; }
-.vf-live .vf-corner { animation: corner 2.2s ease-in-out infinite; }
-@keyframes corner { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(var(--dx), var(--dy)); } }
-.vf-hit .vf-corner { border-color: #3ddc97; animation: none; }
-.vf-beam { position: absolute; left: 4%; right: 4%; height: 70px; top: 0; background: linear-gradient(to bottom, transparent, rgba(255,77,109,.18) 70%, rgba(255,77,109,.0));
-  border-bottom: 2px solid #ff4d6d; box-shadow: 0 6px 18px -2px rgba(255,77,109,.8); animation: vfbeam 1.9s cubic-bezier(.65,0,.35,1) infinite alternate; }
-@keyframes vfbeam { from { transform: translateY(-50px); } to { transform: translateY(calc(var(--vf-h, 220px) - 20px)); } }
-.vf-grid { position: absolute; inset: 0; opacity: .14; background-image: linear-gradient(rgba(255,255,255,.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.6) 1px, transparent 1px); background-size: 22px 22px; mask-image: radial-gradient(closest-side, #000, transparent); }
-.flash { animation: flash .5s ease-out forwards; }
-@keyframes flash { from { opacity: .85; } to { opacity: 0; } }
-.pop { animation: pop .45s cubic-bezier(.2,1.4,.4,1) both; }
-@keyframes pop { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-.shake { animation: shake .45s ease-in-out; }
-@keyframes shake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
-.layer-in { animation: layer .28s cubic-bezier(.2,.8,.2,1) both; }
-@keyframes layer { from { transform: translateY(28px); opacity: 0; } to { transform: none; opacity: 1; } }
-.fade-in { animation: fade .35s ease both; }
-@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-.sheet-in { animation: layer .24s ease-out both; }
-.skeleton { background: linear-gradient(90deg, var(--surface-2), var(--line), var(--surface-2)); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
-@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-@media (prefers-reduced-motion: reduce) {
-  .aurora, .emblem-bar, .emblem-beam, .ring, .vf-corner, .vf-beam, .layer-in, .fade-in, .sheet-in, .pop, .shake, .skeleton { animation: none !important; }
-  .ring { display: none; }
-}
-</style>
-
-</head>
-<body>
-<div id="root">
-  <p class="gutter" style="padding-block:40px;color:var(--muted);text-align:center">Loading Stock Scanner…</p>
-</div>
-
-<script>
 (() => {
   "use strict";
   const { useState, useEffect, useMemo, useRef, useCallback } = React;
   const html = htm.bind(React.createElement);
 
   /* ================= constants & helpers ================= */
-  const PAGE = 60, CHUNK_ROWS = 20000, PARALLEL = 2, STALE_MS = 24 * 3600 * 1000;
+  const PAGE = 60, CHUNK_ROWS = 20000, PARALLEL = 2;
+  const STALE_MS = 24 * 3600 * 1000;      // re-download at least this often when the script can't report changes
+  const CHECK_MS = 10 * 60 * 1000;        // ask the sheet "anything new?" at most this often
+  const MAX_HITS = 1500, SCORE_LIMIT = 20000;
   const LS_KEY = "ftc-stock-scanner-v1";
-  const ZXING_URL = "https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js";
-  const ZXING_SRI = "sha384-BzBxP10ZE72aitqj5UMmUsbKFliP/DZqA8Wq+BNNhlIJDGoEd1tpkMYXOg9+n6sB";
+  const WORKER_URL = "__WORKER_URL__";    // filled in by tools/build.mjs
+  const ZXING_URL = "__ZXING_URL__";
+  const SEP = "\u0001";
+  const DIM_KEYS = ["dept", "subdept", "supplier", "category", "brand"];
 
   const ls = {
     get(k) { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
   };
-  // The item list is large (100k+ rows), so it is cached in IndexedDB rather than localStorage.
+  // The item index is large (tens of MB), so it lives in IndexedDB, never localStorage.
   const idb = (() => {
     let p = null;
     const open = () => p || (p = new Promise((res, rej) => {
@@ -157,15 +28,18 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     }));
     const tx = async (mode, fn) => {
       const db = await open();
-      return new Promise((res, rej) => { const t = db.transaction("kv", mode); const q = fn(t.objectStore("kv")); t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error); });
+      return new Promise((res, rej) => { const t = db.transaction("kv", mode); const q = fn(t.objectStore("kv")); t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
     };
     return {
       async get(k) { try { return await tx("readonly", (s) => s.get(k)); } catch { return null; } },
-      async set(k, v) { try { await tx("readwrite", (s) => s.put(v, k)); } catch {} }
+      async set(k, v) { try { await tx("readwrite", (s) => s.put(v, k)); return true; } catch { return false; } },
+      async del(k) { try { await tx("readwrite", (s) => s.delete(k)); } catch {} }
     };
   })();
 
   const num = (v) => { const x = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g, "")); return isFinite(x) ? x : 0; };
+  const numOrNaN = (v) => { const s = String(v ?? "").trim(); if (s === "") return NaN; const x = parseFloat(s.replace(/[^0-9.\-]/g, "")); return isFinite(x) ? x : NaN; };
+  const r2 = (x) => (x !== x ? "" : Math.round(x * 10000) / 10000);
   const qty = (v) => { const x = Number(v) || 0; return Number.isInteger(x) ? x.toLocaleString() : x.toLocaleString(undefined, { maximumFractionDigits: 2 }); };
   const money = (v, cur = "$") => (v === "" || v == null || isNaN(v) ? "—" : cur + Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   const norm = (s) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -179,7 +53,24 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   };
   const colLetter = (i) => { let s = "", n = i + 1; while (n) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; };
   const quoteTab = (t) => "'" + String(t).replace(/'/g, "''") + "'";
-  const sheetIdFrom = (s) => { const m = String(s).match(/\/d\/([a-zA-Z0-9_-]{20,})/); return m ? m[1] : String(s).trim(); };
+  // Keep the browser responsive during long loops: hand control back so taps and animations aren't blocked.
+  const yieldToMain = () => ("scheduler" in window && scheduler.yield ? scheduler.yield() : new Promise((r) => setTimeout(r, 0)));
+
+  /* Lowercase and strip accents without changing the string's length, so offsets in the raw and search text line up. */
+  const NON_ASCII = /[^\x00-\x7f]/;
+  function fold(s) {
+    s = String(s ?? "");
+    if (!NON_ASCII.test(s)) return s.toLowerCase();
+    let out = "";
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charAt(i);
+      if (c.charCodeAt(0) < 128) out += c.toLowerCase();
+      else out += (c.normalize("NFD").charAt(0).toLowerCase().charAt(0)) || c;
+    }
+    return out;
+  }
+  const clean = (v) => String(v ?? "").replace(/[\u0001\n\r\t]+/g, " ").trim();
+  const facetVal = (v) => { const s = clean(v); return s === "-" || s === "#N/A" ? "" : s; };
 
   /* Columns in the item sheet, matched by header name so the sheet can gain or reorder columns. */
   const COLS = {
@@ -190,7 +81,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     type: ["item type"], collection: ["ga_collection"], tracked: ["ga_tenuestock"], ref: ["ga_charlibre1"], dpa: ["ga_dpa"],
     byHowMany: ["by how many"], scale: ["scale item"]
   };
-  const INDEX_FIELDS = ["code", "barcode", "name", "supplier", "dept", "subdept", "retail", "brand", "category", "subcategory", "stock", "pmap"];
+  const INDEX_FIELDS = ["code", "barcode", "name", "supplier", "dept", "subdept", "category", "brand", "retail", "stock", "pmap"];
   function mapColumns(header) {
     const h = header.map((x) => norm(x).trim());
     const map = {};
@@ -198,22 +89,10 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     return map;
   }
 
-  function toItem(r, map, row) {
-    const g = (f) => (map[f] === undefined ? "" : String(r[map[f]] ?? "").trim());
-    const tags = [g("dept"), g("subdept"), g("supplier"), g("category"), g("subcategory"), g("brand")]
-      .map((t) => t.toLowerCase()).filter((t) => t && t !== "-" && t !== "#n/a");
-    const it = { row, code: g("code"), barcode: g("barcode"), name: g("name"), tags: [...new Set(tags)],
-      retail: g("retail") === "" ? "" : num(g("retail")), stock: num(g("stock")), pmap: g("pmap") === "" ? "" : num(g("pmap")),
-      f: { dept: g("dept"), subdept: g("subdept"), supplier: g("supplier"), category: g("category"), brand: g("brand") } };
-    it.hay = norm([it.code, it.barcode, it.name, it.tags.join(" ")].join(" "));
-    return it;
-  }
-  const level = (it) => (it.stock <= 0 ? "out" : "ok");
   const LEVEL = {
     out: { label: "Out", pill: "bg-bad-soft text-bad", num: "text-bad" },
     ok: { label: "In stock", pill: "bg-accent-soft text-accent", num: "text-fg" }
   };
-
 
   function sheetError(e) {
     const c = e && e.code;
@@ -225,93 +104,286 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     return { title: "Couldn't read the sheet", text: "The sheet's script reported: " + String((e && (e.message || e.code)) || "unknown error").slice(0, 160), retry: true };
   }
 
-  /* ================= sheet connection (Apps Script web app) ================= */
-  function readConn() {
-    // A staff setup link carries the connection in the hash: #connect=<base64 of url|key>.
-    const m = location.hash.match(/connect=([^&]+)/);
-    if (m) {
-      try {
-        const [url, key] = atob(decodeURIComponent(m[1])).split("|");
-        if (/^https:\/\/script\.google(usercontent)?\.com\//.test(url) && key) ls.set(LS_KEY + ":conn", { url, key });
-      } catch {}
-      history.replaceState(null, "", location.pathname + location.search);
+  /* ================= compact item index =================
+     166,000 items as separate objects cost well over 100 MB of memory and seconds to rebuild. Instead the index is
+     two long strings (raw text for display, folded text for searching, one line per item) plus typed arrays for the numbers
+     and for each filter column (value ids into a small dictionary). It loads from storage in one step. */
+  function packChunk(rows, start, pos, map) {
+    const g = (f, v) => (map[f] === undefined ? "" : v[pos[map[f]]] ?? "");
+    const o = { lines: [], hay: [], rows: [], stock: [], retail: [], pmap: [] };
+    for (const k of DIM_KEYS) o[k] = [];
+    for (let i = 0; i < rows.length; i++) {
+      const v = rows[i];
+      const code = clean(g("code", v)), barcode = clean(g("barcode", v));
+      if (!code && !barcode) continue;
+      const line = code + SEP + barcode + SEP + clean(g("name", v)) + SEP + clean(g("brand", v));
+      o.lines.push(line); o.hay.push(fold(line));
+      o.rows.push(start + i); o.stock.push(num(g("stock", v))); o.retail.push(numOrNaN(g("retail", v))); o.pmap.push(numOrNaN(g("pmap", v)));
+      for (const k of DIM_KEYS) o[k].push(facetVal(g(k, v)));
     }
-    return ls.get(LS_KEY + ":conn") || { url: "", key: "" };
+    return o;
+  }
+  async function assemble(parts) {
+    parts = parts.filter((p) => p.rows.length);
+    const n = parts.reduce((a, p) => a + p.rows.length, 0);
+    const off = new Int32Array(n + 1), rows = new Int32Array(n);
+    const stock = new Float64Array(n), retail = new Float64Array(n), pmap = new Float64Array(n);
+    const dim = {}, dict = {}, maps = {};
+    for (const k of DIM_KEYS) { dim[k] = new Uint32Array(n); dict[k] = [""]; maps[k] = new Map([["", 0]]); }
+    let i = 0, pos = 1;
+    for (const p of parts) {
+      for (let j = 0; j < p.rows.length; j++, i++) {
+        off[i] = pos; pos += p.lines[j].length + 1;
+        rows[i] = p.rows[j]; stock[i] = p.stock[j]; retail[i] = p.retail[j]; pmap[i] = p.pmap[j];
+      }
+      for (const k of DIM_KEYS) {
+        const m = maps[k], d = dict[k], arr = dim[k], base = i - p.rows.length, vals = p[k];
+        for (let j = 0; j < vals.length; j++) { let id = m.get(vals[j]); if (id === undefined) { id = d.length; d.push(vals[j]); m.set(vals[j], id); } arr[base + j] = id; }
+      }
+      await yieldToMain();
+    }
+    off[n] = pos;
+    const R = "\n" + parts.map((p) => p.lines.join("\n")).join("\n") + "\n";
+    await yieldToMain();
+    const H = "\n" + parts.map((p) => p.hay.join("\n")).join("\n") + "\n";
+    return { v: 2, n, R, H, off, rows, stock, retail, pmap, dim, dict };
+  }
+  const dictMap = (db, k) => (db.maps || (db.maps = {}))[k] || (db.maps[k] = new Map(db.dict[k].map((v, i) => [v, i])));
+
+  function itemAt(db, i) {
+    const [code, barcode, name, brand] = db.R.slice(db.off[i], db.off[i + 1] - 1).split(SEP);
+    const f = {}; for (const k of DIM_KEYS) f[k] = db.dict[k][db.dim[k][i]];
+    return { idx: i, row: db.rows[i], code, barcode, name, brand, stock: db.stock[i], retail: r2(db.retail[i]), pmap: r2(db.pmap[i]), f };
+  }
+  function itemFromValues(v, map, row) {
+    const g = (f) => (map[f] === undefined ? "" : String(v[map[f]] ?? "").trim());
+    const f = {}; for (const k of DIM_KEYS) f[k] = facetVal(g(k));
+    const r = g("retail"), p = g("pmap");
+    return { idx: -1, row, code: g("code"), barcode: g("barcode"), name: g("name"), brand: g("brand"), stock: num(g("stock")), retail: r === "" ? "" : num(r), pmap: p === "" ? "" : num(p), f, extra: true };
+  }
+  const lineAt = (off, pos) => { let lo = 0, hi = off.length - 2; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (off[mid] <= pos) lo = mid; else hi = mid - 1; } return lo; };
+  function rowIndex(db, row) { const a = db.rows; let lo = 0, hi = a.length - 1; while (lo <= hi) { const m = (lo + hi) >> 1; if (a[m] === row) return m; if (a[m] < row) lo = m + 1; else hi = m - 1; } return -1; }
+
+  /* Exact barcode or item code. Tries the common leading-zero variants (UPC-A vs EAN-13). */
+  function lookup(db, raw) {
+    const q = fold(String(raw).trim()); if (!q) return -1;
+    // Scanners and sheets disagree about leading zeros (UPC-A 12 digits, EAN-13 13 digits, codes stored with or without padding).
+    const bare = q.replace(/^0+/, "");
+    const cands = [...new Set([q, bare, ...(/^\d+$/.test(bare) ? [8, 12, 13, 14].filter((L) => L >= bare.length).map((L) => bare.padStart(L, "0")) : [])].filter(Boolean))];
+    const { H, off } = db;
+    for (const c of cands) {
+      let p = H.indexOf("\n" + c + SEP);
+      if (p >= 0) return lineAt(off, p + 1);
+      p = 0;
+      while ((p = H.indexOf(SEP + c + SEP, p)) >= 0) { const i = lineAt(off, p); if (H.indexOf(SEP, off[i]) === p) return i; p++; }
+    }
+    return -1;
+  }
+
+  const FILTER_DIMS = [["dept", "Department"], ["subdept", "Subdepartment"], ["supplier", "Supplier"], ["category", "Category"], ["brand", "Brand"]];
+  const EMPTY_FILTERS = { dept: "", subdept: "", supplier: "", category: "", brand: "", stock: "", min: "", max: "" };
+  const activeCount = (f) => Object.entries(f).filter(([, v]) => v !== "").length;
+  // Non-column conditions (stock, price). Returns null when there are none.
+  function extraTest(db, f) {
+    const min = f.min === "" ? null : num(f.min), max = f.max === "" ? null : num(f.max);
+    if (!f.stock && min === null && max === null) return null;
+    const { stock, retail } = db;
+    return (i) => (f.stock === "in" ? stock[i] > 0 : f.stock === "out" ? stock[i] <= 0 : true) && (min === null || retail[i] >= min) && (max === null || retail[i] <= max);
+  }
+  function makeFilter(db, f) {
+    const conds = [];
+    for (const k of DIM_KEYS) if (f[k] !== "") { const id = dictMap(db, k).get(f[k]); conds.push(id === undefined ? () => false : (i) => db.dim[k][i] === id); }
+    const ex = extraTest(db, f); if (ex) conds.push(ex);
+    if (!conds.length) return null;
+    return (i) => { for (let c = 0; c < conds.length; c++) if (!conds[c](i)) return false; return true; };
+  }
+  /* Text search over the whole index with a handful of string scans instead of a loop over 166k objects:
+     find the longest word with indexOf, then check the other words on just those lines. */
+  function searchDb(db, rawQuery, f) {
+    const words = fold(rawQuery).split(/\s+/).filter(Boolean);
+    const fp = makeFilter(db, f);
+    const exact = [], starts = [], rest = [];
+    let total = 0;
+    if (!words.length) {
+      for (let i = 0; i < db.n; i++) if (!fp || fp(i)) { total++; if (rest.length < MAX_HITS) rest.push(i); }
+      return { total, list: rest };
+    }
+    let anchor = words[0]; for (const w of words) if (w.length > anchor.length) anchor = w;
+    const q = words.join(" "), { H, off } = db;
+    let pos = 0, i = 0;
+    for (;;) {
+      pos = H.indexOf(anchor, pos); if (pos < 0) break;
+      while (off[i + 1] <= pos) i++;
+      const start = off[i], end = off[i + 1] - 1;
+      let ok = true;
+      if (words.length > 1) { const line = H.slice(start, end); for (const w of words) if (w !== anchor && !line.includes(w)) { ok = false; break; } }
+      if (ok && (!fp || fp(i))) {
+        total++;
+        if (total <= SCORE_LIMIT) {     // rank exact code/barcode first, then names that start with the query
+          const s1 = H.indexOf(SEP, start), s2 = H.indexOf(SEP, s1 + 1);
+          if (H.startsWith(q + SEP, start) || H.startsWith(q + SEP, s1 + 1)) { exact.push(i); }
+          else if (H.startsWith(q, s2 + 1)) { if (starts.length < MAX_HITS) starts.push(i); }
+          else if (rest.length < MAX_HITS) rest.push(i);
+        } else if (rest.length < MAX_HITS) rest.push(i);
+      }
+      pos = off[i + 1];
+    }
+    return { total, list: exact.concat(starts, rest).slice(0, MAX_HITS) };
+  }
+  /* Option counts for every filter column in one pass: an option's count ignores its own column's choice, so the
+     other options stay visible as you pick. */
+  function facetsDb(db, f) {
+    const counts = {}; for (const k of DIM_KEYS) counts[k] = new Uint32Array(db.dict[k].length);
+    const want = DIM_KEYS.map((k) => (f[k] === "" ? -1 : (dictMap(db, k).get(f[k]) ?? -2)));
+    const arrs = DIM_KEYS.map((k) => db.dim[k]), cnt = DIM_KEYS.map((k) => counts[k]), D = DIM_KEYS.length;
+    const ex = extraTest(db, f);
+    let match = 0;
+    for (let i = 0; i < db.n; i++) {
+      if (ex && !ex(i)) continue;
+      let fails = 0, which = -1;
+      for (let d = 0; d < D; d++) if (want[d] !== -1 && arrs[d][i] !== want[d]) { fails++; which = d; if (fails > 1) break; }
+      if (fails === 0) { match++; for (let d = 0; d < D; d++) cnt[d][arrs[d][i]]++; }
+      else if (fails === 1) cnt[which][arrs[which][i]]++;
+    }
+    const options = {};
+    for (const k of DIM_KEYS) {
+      const out = [], c = counts[k], dict = db.dict[k];
+      for (let id = 1; id < c.length; id++) if (c[id] > 0) out.push([dict[id], c[id]]);
+      out.sort((a, b) => b[1] - a[1]); options[k] = out;
+    }
+    return { match, options };
+  }
+
+  /* ================= sheet connection (Apps Script web app) ================= */
+  const validUrl = (u) => /^https:\/\/script\.google(usercontent)?\.com\//.test(u || "");
+  // A staff setup link carries the connection after #connect=  (base64 of "url|key").
+  function connFromText(text) {
+    const m = String(text || "").match(/connect=([^&\s]+)/);
+    if (!m) return null;
+    try {
+      const [url, key] = atob(decodeURIComponent(m[1]).replace(/ /g, "+")).split("|");
+      return validUrl(url) && key ? { url, key } : null;
+    } catch { return null; }
+  }
+  function takeConnectHash() {
+    const c = connFromText(location.hash);
+    if (c) { ls.set(LS_KEY + ":conn", c); history.replaceState(null, "", location.pathname + location.search); }
+    return c;
   }
   const setupLink = (conn) => location.origin + location.pathname + "#connect=" + encodeURIComponent(btoa(conn.url + "|" + conn.key));
 
   function useSheet() {
-    const [conn, setConn] = useState(readConn);
-    const [items, setItems] = useState([]);
-    const [meta, setMeta] = useState({ syncedAt: 0, header: [], map: {} });
+    const [conn, setConn] = useState(() => { takeConnectHash(); return ls.get(LS_KEY + ":conn") || { url: "", key: "" }; });
+    const [db, setDb] = useState(null);
+    const [extras, setExtras] = useState([]);       // items found by scanning that the saved list doesn't have yet
+    const [meta, setMeta] = useState({ syncedAt: 0, checkedAt: 0, header: [], map: {}, updated: "", lastRow: 0 });
     const [status, setStatus] = useState({ kind: "loading" });
-    const itemsRef = useRef(items); itemsRef.current = items;
+    const connRef = useRef(conn); connRef.current = conn;
+    const dbRef = useRef(db); dbRef.current = db;
+    const extrasRef = useRef(extras); extrasRef.current = extras;
     const metaRef = useRef(meta); metaRef.current = meta;
-    const cacheKey = "index3:" + conn.url;
+    const syncing = useRef(false);
+    const photoIdx = useRef(null);
     const connected = !!(conn.url && conn.key);
+    const cacheKey = "idx4:" + conn.url;
 
     const api = useCallback(async (action, params = {}) => {
-      if (!conn.url || !conn.key) throw { code: "not_connected" };
-      const qs = new URLSearchParams({ action, key: conn.key, ...params });
+      const c = connRef.current;
+      if (!c.url || !c.key) throw { code: "not_connected" };
       let res;
-      try { res = await fetch(conn.url + "?" + qs.toString(), { redirect: "follow" }); }
+      try { res = await fetch(c.url + "?" + new URLSearchParams({ action, key: c.key, ...params }), { redirect: "follow" }); }
       catch { throw { code: "network" }; }
       let data;
       try { data = await res.json(); } catch { throw { code: "bad_response" }; }
       if (data && data.error) throw { code: data.error, message: data.error };
       return data;
-    }, [conn]);
+    }, []);
 
-    const sync = useCallback(async () => {
-      setStatus({ kind: "syncing", done: 0, total: 0 });
+    const loadMeta = useCallback(async () => {
+      const m0 = await api("meta");
+      const header = m0.header || [], map = mapColumns(header);
+      if (map.code === undefined && map.barcode === undefined) throw { code: "no_columns", message: "The first row needs a GA_CODEARTICLE or BARCODE column." };
+      const m = { ...metaRef.current, header, map };
+      metaRef.current = m; setMeta(m);          // available straight away, so scanning works while the list downloads
+      return { m0, header, map };
+    }, [api]);
+
+    const sync = useCallback(async (opts = {}) => {
+      if (syncing.current) return;
+      syncing.current = true;
+      const prev = metaRef.current.syncedAt && dbRef.current ? metaRef.current : null;
       try {
-        const m0 = await api("meta");
-        const header = m0.header || [];
-        const map = mapColumns(header);
-        if (map.code === undefined && map.barcode === undefined) throw { code: "no_columns", message: "The first row needs a GA_CODEARTICLE or BARCODE column." };
+        const { m0, header, map } = await loadMeta();
+        // "Anything new?" costs one small call. Download again only when the sheet changed (or the script can't tell us).
+        const unchanged = prev && !opts.force && (m0.updated ? m0.updated === prev.updated && m0.lastRow === prev.lastRow : Date.now() - prev.syncedAt < STALE_MS);
+        if (unchanged) {
+          const m = { ...metaRef.current, checkedAt: Date.now() }; metaRef.current = m; setMeta(m); idb.set(cacheKey + ":meta", m);
+          setStatus({ kind: "ready" }); return;
+        }
         const cols = [...new Set(INDEX_FIELDS.map((f) => map[f]).filter((i) => i !== undefined))].sort((a, b) => a - b);
+        const pos = {}; cols.forEach((c, j) => { pos[c] = j; });
         const total = Math.max(0, m0.lastRow - 1);
         const starts = []; for (let s = 2; s <= m0.lastRow; s += CHUNK_ROWS) starts.push(s);
         const parts = new Array(starts.length);
         let next = 0, done = 0;
-        setStatus({ kind: "syncing", done: 0, total });
+        setStatus({ kind: "syncing", done: 0, total, quiet: !!prev });
         const worker = async () => {
           while (next < starts.length) {
             const k = next++, s = starts[k];
             const res = await api("index", { start: s, count: CHUNK_ROWS, cols: cols.join(",") });
-            parts[k] = (res.rows || []).map((vals, i) => {
-              const full = []; cols.forEach((c, j) => { full[c] = vals[j]; });
-              return toItem(full, map, s + i);
-            }).filter((it) => it.code || it.barcode);
+            parts[k] = packChunk(res.rows || [], s, pos, map);
             done += (res.rows || []).length;
-            setStatus({ kind: "syncing", done: Math.min(done, total), total });
+            setStatus({ kind: "syncing", done: Math.min(done, total), total, quiet: !!prev });
+            await yieldToMain();
           }
         };
         await Promise.all(Array.from({ length: Math.min(PARALLEL, starts.length) }, worker));
-        const all = parts.flat();
-        const m = { syncedAt: Date.now(), header, map };
-        setItems(all); setMeta(m); setStatus({ kind: "ready" });
-        idb.set(cacheKey, { items: all.map(({ hay, ...rest }) => rest), meta: m });
+        const nextDb = await assemble(parts);
+        const m = { syncedAt: Date.now(), checkedAt: Date.now(), header, map, updated: m0.updated || "", lastRow: m0.lastRow };
+        dbRef.current = nextDb; metaRef.current = m;
+        setDb(nextDb); setMeta(m); setExtras([]); setStatus({ kind: "ready" });
+        idb.set(cacheKey + ":db", nextDb); idb.set(cacheKey + ":meta", m);
       } catch (e) {
-        setStatus({ kind: "error", err: e });
-      }
-    }, [api, cacheKey]);
+        setStatus(dbRef.current && opts.quiet ? { kind: "ready" } : { kind: "error", err: e });
+      } finally { syncing.current = false; }
+    }, [api, cacheKey, loadMeta]);
 
     useEffect(() => {
       let cancelled = false;
       (async () => {
-        setStatus({ kind: "loading" }); setItems([]);
-        if (!connected) { setStatus({ kind: "error", err: { code: "not_connected" } }); return; }
-        const cached = await idb.get(cacheKey);
+        if (!connected) { setDb(null); setStatus({ kind: "error", err: { code: "not_connected" } }); return; }
+        setStatus({ kind: "loading" });
+        const [cdb, cmeta] = await Promise.all([idb.get(cacheKey + ":db"), idb.get(cacheKey + ":meta")]);
         if (cancelled) return;
-        if (cached && cached.items) {
-          setItems(cached.items.map((it) => ({ ...it, hay: norm([it.code, it.barcode, it.name, it.tags.join(" ")].join(" ")) })));
-          setMeta(cached.meta); setStatus({ kind: "ready" });
-        }
-        if (!cached || Date.now() - (cached.meta.syncedAt || 0) > STALE_MS) sync();
+        if (cdb && cdb.v === 2 && cmeta) { dbRef.current = cdb; metaRef.current = cmeta; setDb(cdb); setMeta(cmeta); setStatus({ kind: "ready" }); }
+        if (!(cdb && cdb.v === 2 && cmeta) || Date.now() - (cmeta.checkedAt || cmeta.syncedAt || 0) > CHECK_MS) sync({ quiet: true });
       })();
       return () => { cancelled = true; };
     }, [cacheKey, connected]);
+
+    // Opening a setup link while the app is already open only changes the address's hash, so watch for that.
+    useEffect(() => {
+      const onHash = () => { const c = takeConnectHash(); if (c) setConn(c); };
+      window.addEventListener("hashchange", onHash);
+      return () => window.removeEventListener("hashchange", onHash);
+    }, []);
+    // A phone that stays open all day should pick up sheet edits when it's brought back to the front.
+    useEffect(() => {
+      const onVis = () => { if (!document.hidden && dbRef.current && Date.now() - (metaRef.current.checkedAt || 0) > 30 * 60 * 1000) sync({ quiet: true }); };
+      document.addEventListener("visibilitychange", onVis);
+      return () => document.removeEventListener("visibilitychange", onVis);
+    }, [sync]);
+
+    const find = useCallback((raw) => {
+      const q = fold(String(raw).trim()); if (!q) return null;
+      const ex = extrasRef.current.find((it) => fold(it.code) === q || fold(it.barcode) === q); if (ex) return ex;
+      const d = dbRef.current; if (!d) return null;
+      const i = lookup(d, raw); return i >= 0 ? itemAt(d, i) : null;
+    }, []);
+    const itemByRow = useCallback((row) => {
+      const d = dbRef.current, i = d ? rowIndex(d, row) : -1;
+      return i >= 0 ? itemAt(d, i) : extrasRef.current.find((it) => it.row === row) || null;
+    }, []);
 
     const rowToFull = (values, m) => {
       const full = {};
@@ -320,53 +392,59 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     };
     // Read one item's full row live, and confirm it still holds the same item.
     const readRow = useCallback(async (it) => {
+      if (!metaRef.current.header.length) await loadMeta();
       const m = metaRef.current;
       const res = await api("row", { row: it.row });
       const full = rowToFull(res.values || [], m);
       if (full.code !== it.code) throw { code: "row_moved" };
       return full;
-    }, [api]);
-    // For barcodes missing from the saved list (e.g. items added since the last update).
+    }, [api, loadMeta]);
+    // For barcodes missing from the saved list (items added since the last update). Works even while the list is still downloading.
     const findLive = useCallback(async (code) => {
+      if (!metaRef.current.header.length) await loadMeta();
       const m = metaRef.current;
-      if (!m.header.length) return null;
       const res = await api("find", { code });
       if (!res.row) return null;
       const r = await api("row", { row: res.row });
-      const full = r.values || [];
-      const it = toItem(full, m.map, res.row);
-      const list = [...itemsRef.current.filter((x) => x.row !== it.row), it];
-      setItems(list);
-      idb.set(cacheKey, { items: list.map(({ hay, ...rest }) => rest), meta: m });
+      const it = itemFromValues(r.values || [], m.map, res.row);
+      const list = [...extrasRef.current.filter((x) => x.row !== it.row), it];
+      extrasRef.current = list; setExtras(list);
       return it;
-    }, [api, cacheKey]);
+    }, [api, loadMeta]);
+    // Keep the saved list in step with what a live row read just showed (in memory only; the next sync refreshes storage).
+    const patchLocal = useCallback((it, patch) => {
+      const d = dbRef.current;
+      if (it.idx >= 0 && d && d.rows[it.idx] === it.row) { if ("stock" in patch) d.stock[it.idx] = patch.stock; if ("retail" in patch) d.retail[it.idx] = patch.retail === "" ? NaN : patch.retail; }
+    }, []);
 
-    const patchLocal = useCallback((row, patch) => {
-      const list = itemsRef.current.map((x) => (x.row === row ? { ...x, ...patch } : x));
-      setItems(list);
-      idb.set(cacheKey, { items: list.map(({ hay, ...rest }) => rest), meta: metaRef.current });
-    }, [cacheKey]);
-
+    // Photos: ask once which items have one, then fetch only those.
     const getPhoto = useCallback(async (code) => {
+      if (!photoIdx.current) photoIdx.current = api("photos").then((r) => new Set(r.codes || []), () => "unknown");
+      const idx = await photoIdx.current;
+      if (idx !== "unknown" && !idx.has(code)) return null;
       const r = await api("photo", { code });
       return r.data ? "data:" + (r.type || "image/jpeg") + ";base64," + r.data : null;
     }, [api]);
     const savePhoto = useCallback(async (code, blob) => {
       const data = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1]); fr.onerror = rej; fr.readAsDataURL(blob); });
       let res;
-      try {
-        res = await fetch(conn.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ key: conn.key, action: "photo", code, data }) });
-      } catch { throw { code: "network" }; }
+      try { res = await fetch(connRef.current.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ key: connRef.current.key, action: "photo", code, data }) }); }
+      catch { throw { code: "network" }; }
       const out = await res.json().catch(() => ({ error: "bad_response" }));
       if (out.error) throw { code: out.error };
-    }, [conn]);
+      const idx = photoIdx.current && await photoIdx.current; if (idx && idx !== "unknown") idx.add(code);
+    }, []);
 
     const saveConn = (next) => { ls.set(LS_KEY + ":conn", next); setConn(next); };
-    return { conn, saveConn, connected, items, meta, status, sync, readRow, findLive, patchLocal, getPhoto, savePhoto, hasMcp: () => connected };
+    const count = (db ? db.n : 0) + extras.length;
+    return { conn, saveConn, connected, db, extras, count, meta, status, sync, find, itemByRow, readRow, findLive, patchLocal, getPhoto, savePhoto };
   }
-  /* ================= barcode decoding ================= */
+
+  /* ================= barcode decoding =================
+     Phones with a built-in barcode reader (most Android) use it. iPhones don't have one, so frames go to a
+     background worker running ZXing; that keeps taps and animations smooth while it works. */
   const FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "code_93", "itf", "codabar", "qr_code", "data_matrix"];
-  let detectorP = null, zxingP = null, zxReader = null;
+  let detectorP = null, worker = null, workerSeq = 0, zxingP = null, zxReader = null;
   function getDetector() {
     if (!detectorP) detectorP = (async () => {
       try {
@@ -378,18 +456,32 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     })();
     return detectorP;
   }
-  // ZXing (~400 KB) loads only when the phone has no built-in barcode reader, or for photos.
+  function getWorker() {
+    if (worker === null) { try { worker = new Worker(WORKER_URL); worker.onerror = () => { worker = false; }; } catch { worker = false; } }
+    return worker;
+  }
+  // Start loading the reader before the scanner opens, so the first scan isn't slowed by it.
+  function warmUp() { getDetector().then((d) => { if (!d) getWorker(); }); }
+  const frameCanvas = document.createElement("canvas");
+  function workerDecode(w, imageData) {
+    return new Promise((resolve) => {
+      const id = ++workerSeq;
+      const done = (e) => { if (e.data.id === id) { w.removeEventListener("message", done); resolve(e.data.text); } };
+      w.addEventListener("message", done);
+      w.postMessage({ id, width: imageData.width, height: imageData.height, buf: imageData.data.buffer }, [imageData.data.buffer]);
+    });
+  }
+  // Fallback when workers are unavailable: load ZXing on the main thread.
   function loadZxing() {
     if (window.ZXing) return Promise.resolve(window.ZXing);
     if (!zxingP) zxingP = new Promise((res, rej) => {
-      const s = document.createElement("script");
-      s.src = ZXING_URL; s.integrity = ZXING_SRI; s.crossOrigin = "anonymous";
+      const s = document.createElement("script"); s.src = ZXING_URL;
       s.onload = () => res(window.ZXing); s.onerror = () => { zxingP = null; rej(new Error("zxing")); };
       document.head.appendChild(s);
     });
     return zxingP;
   }
-  function zxDecode(Z, cv) {
+  function zxDecodeMain(Z, cv) {
     if (!zxReader) {
       const hints = new Map(), F = Z.BarcodeFormat;
       hints.set(Z.DecodeHintType.TRY_HARDER, true);
@@ -403,18 +495,35 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     try { return zxReader.decodeWithState(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.RGBLuminanceSource(lum, w, h, w, h, 0, 0)))).getText(); }
     catch { return null; } finally { zxReader.reset(); }
   }
-  const frameCanvas = document.createElement("canvas");
-  // Decode a video frame or photo. Live frames are cropped to the reticle band and capped at 960 px to save battery.
+  // Decode a video frame or photo. Live frames are cropped to the viewfinder band; photos are tried whole, then cropped.
   async function decode(src, w, h, { crop, maxSide }) {
     const det = await getDetector();
     if (det) { try { const r = await det.detect(src); if (r && r.length) return r[0].rawValue; } catch {} }
-    let Z; try { Z = await loadZxing(); } catch { return null; }
     let sx = 0, sy = 0, sw = w, sh = h;
     if (crop) { sw = w * 0.9; sh = h * 0.5; sx = (w - sw) / 2; sy = (h - sh) / 2; }
     const scale = Math.min(1, maxSide / Math.max(sw, sh));
     frameCanvas.width = Math.round(sw * scale); frameCanvas.height = Math.round(sh * scale);
-    frameCanvas.getContext("2d", { willReadFrequently: true }).drawImage(src, sx, sy, sw, sh, 0, 0, frameCanvas.width, frameCanvas.height);
-    return zxDecode(Z, frameCanvas);
+    const ctx = frameCanvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(src, sx, sy, sw, sh, 0, 0, frameCanvas.width, frameCanvas.height);
+    const wk = getWorker();
+    if (wk) return workerDecode(wk, ctx.getImageData(0, 0, frameCanvas.width, frameCanvas.height));
+    let Z; try { Z = await loadZxing(); } catch { return null; }
+    return zxDecodeMain(Z, frameCanvas);
+  }
+
+  /* Short beep when a barcode is read (phones that can't vibrate still give feedback). The audio context is created
+     from the Scan tap, which browsers require. */
+  const audio = { ctx: null };
+  function primeAudio() { try { audio.ctx = audio.ctx || new (window.AudioContext || window.webkitAudioContext)(); if (audio.ctx.state === "suspended") audio.ctx.resume(); } catch {} }
+  function beep() {
+    const prefs = ls.get(LS_KEY + ":prefs") || {};
+    if (prefs.beep === false || !audio.ctx) return;
+    try {
+      const c = audio.ctx, o = c.createOscillator(), g = c.createGain();
+      o.type = "sine"; o.frequency.value = 1568; g.gain.setValueAtTime(0.0001, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.25, c.currentTime + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.14);
+      o.connect(g).connect(c.destination); o.start(); o.stop(c.currentTime + 0.15);
+    } catch {}
   }
 
   /* ================= icons ================= */
@@ -520,8 +629,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 
     const finish = (code) => {
       if (doneRef.current) return; doneRef.current = true;
-      buzz(); setMode("hit"); setFlash((f) => f + 1);
-      setTimeout(() => onCode(code), 520);
+      buzz(); beep(); setMode("hit"); setFlash((f) => f + 1);
+      setTimeout(() => onCode(code), 380);
     };
 
     useEffect(() => {
@@ -535,21 +644,22 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
           if (stopped) return stop();
           const v = videoRef.current; v.srcObject = stream; await v.play();
           const track = stream.getVideoTracks()[0]; trackRef.current = track;
+          try { await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch {}
           try { const caps = track.getCapabilities && track.getCapabilities(); if (caps && caps.torch) setTorch(false); } catch {}
           setMode("live");
           // About 5 decodes a second is plenty for a handheld scan and keeps the phone cool.
           const tick = async () => {
             if (stopped) return;
             if (!document.hidden && v.videoWidth) {
-              const code = await decode(v, v.videoWidth, v.videoHeight, { crop: true, maxSide: 960 });
+              const code = await decode(v, v.videoWidth, v.videoHeight, { crop: true, maxSide: 1200 });
               if (code && !stopped) { stop(); return finish(code); }
             }
-            timer = setTimeout(tick, 200);
+            timer = setTimeout(tick, 120);
           };
           tick();
         } catch {
           stop(); camState.blocked = true; setMode("idle");
-          loadZxing().catch(() => {});
+          warmUp();
         }
       })();
       const onHide = () => { if (document.hidden) onClose(); };
@@ -559,7 +669,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     useEffect(() => {
       const k = (e) => e.key === "Escape" && onClose();
       document.addEventListener("keydown", k);
-      if (initialFile) readPhoto(initialFile); else if (photoFirst) loadZxing().catch(() => {});
+      if (initialFile) readPhoto(initialFile); else if (photoFirst) warmUp();
       return () => document.removeEventListener("keydown", k);
     }, []);
 
@@ -626,7 +736,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
           ${typing ? html`
             <form className="flex w-full max-w-[420px] gap-2 fade-in" onSubmit=${(e) => { e.preventDefault(); manual.trim() && finish(manual); }}>
               <input autoFocus value=${manual} onChange=${(e) => setManual(e.target.value)} inputMode="numeric" autoComplete="off" placeholder="Barcode or item code"
-                aria-label="Type a barcode or item code" className="min-w-0 flex-1 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 font-mono text-base text-white backdrop-blur-md placeholder:text-white/50" />
+                aria-label="Type a barcode or item code" className="min-w-0 flex-1 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 font-mono text-base text-white backdrop-blur-md placeholder:text-white/70" />
               <button type="submit" className="rounded-2xl bg-white px-5 font-semibold text-[#03140d]">Find</button>
             </form>`
           : html`<button type="button" onClick=${() => setTyping(true)} className="min-h-[44px] rounded-full px-4 text-[14px] text-white/75 underline-offset-4 hover:underline">Type the code instead</button>`}
@@ -715,14 +825,15 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
           <button type="button" onClick=${onSearch}
             className="mt-10 flex w-full max-w-[420px] items-center gap-3 rounded-2xl border border-line bg-surface/80 px-4 py-3.5 text-left text-muted shadow-card backdrop-blur hover:border-accent">
             <${Icon} d=${I.search} size=${20} />
-            <span className="min-w-0 flex-1 truncate">${sheet.items.length ? `Search ${sheet.items.length.toLocaleString()} items` : "Search items"}</span>
+            <span className="min-w-0 flex-1 truncate">Search <span className="hidden min-[360px]:inline">${sheet.count ? sheet.count.toLocaleString() + " " : ""}</span>items</span>
             <span className="flex items-center gap-1 rounded-lg bg-surface2 px-2 py-1 text-[12px] font-semibold"><${Icon} d=${I.sliders} size=${14} />Filters</span>
           </button>
 
+          ${sheet.count > 0 && s.kind !== "syncing" && html`<p className="mt-3 text-[12px] text-muted tabular-nums">${sheet.count.toLocaleString()} items · checked ${ago(sheet.meta.checkedAt || sheet.meta.syncedAt)}${typeof navigator !== "undefined" && navigator.onLine === false ? " · offline" : ""}</p>`}
           ${s.kind === "syncing" && html`<div className="mt-5 w-full max-w-[420px] fade-in"><${SyncBar} s=${s} /></div>`}
           ${err && html`<div className="mt-5 w-full max-w-[420px] rounded-2xl border border-bad bg-bad-soft p-3.5 text-left text-[13px] fade-in" role="alert">
             <b className="block text-bad">${err.title}</b><p className="mt-0.5">${err.text}</p>
-            <${Button} className="mt-2" onClick=${err.settings ? onSettings : sheet.sync}>${err.settings ? "Open settings" : "Try again"}</${Button}>
+            <${Button} className="mt-2" onClick=${err.settings ? onSettings : () => sheet.sync({ force: true })}>${err.settings ? "Open settings" : "Try again"}</${Button}>
           </div>`}
         </main>
       </div>`;
@@ -730,6 +841,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 
   function SyncBar({ s }) {
     const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
+    if (s.quiet) return html`<p className="text-[12px] text-muted tabular-nums" role="status">Updating the item list in the background… ${pct}%</p>`;
     return html`<div className="rounded-2xl border border-line bg-surface/80 px-3.5 py-2.5 text-left text-[12px] backdrop-blur" role="status">
       <div className="flex justify-between gap-2"><span>Getting items from Google Sheets…</span><span className="tabular-nums text-muted">${s.total ? pct + "%" : ""}</span></div>
       <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface2"><div className="grad-fill h-full rounded-full transition-all duration-500" style=${{ width: Math.max(4, pct) + "%" }}></div></div>
@@ -744,36 +856,17 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     <button type="button" onClick=${onClick} aria-label=${label} className="grid h-11 w-11 flex-none place-items-center rounded-full border border-line bg-surface hover:border-accent"><${Icon} d=${I.back} /></button>`;
 
   /* ================= search & filters ================= */
-  const FILTER_DIMS = [["dept", "Department"], ["subdept", "Subdepartment"], ["supplier", "Supplier"], ["category", "Category"], ["brand", "Brand"]];
-  const EMPTY_FILTERS = { dept: "", subdept: "", supplier: "", category: "", brand: "", stock: "", min: "", max: "" };
-  const activeCount = (f) => Object.entries(f).filter(([, v]) => v !== "").length;
-  const passes = (it, f, skip) => {
-    for (const [k] of FILTER_DIMS) if (k !== skip && f[k] && (it.f ? it.f[k] : "") !== f[k]) return false;
-    if (f.stock === "in" && it.stock <= 0) return false;
-    if (f.stock === "out" && it.stock > 0) return false;
-    if (f.min !== "" && !(num(it.retail) >= num(f.min))) return false;
-    if (f.max !== "" && !(num(it.retail) <= num(f.max))) return false;
-    return true;
-  };
-
-  function FilterSheet({ items, filters, setFilters, onClose }) {
+  function FilterSheet({ db, filters, setFilters, onClose }) {
     const [draft, setDraft] = useState(filters);
     const [find, setFind] = useState({});
-    // Options for each dimension respect the other chosen filters, so choices narrow as you pick.
-    const options = useMemo(() => {
-      const out = {};
-      for (const [k] of FILTER_DIMS) {
-        const c = new Map();
-        for (const it of items) { const v = it.f && it.f[k]; if (v && v !== "-" && v !== "#N/A" && passes(it, draft, k)) c.set(v, (c.get(v) || 0) + 1); }
-        out[k] = [...c.entries()].sort((a, b) => b[1] - a[1]);
-      }
-      return out;
-    }, [items, draft]);
-    const matches = useMemo(() => items.reduce((n, it) => n + (passes(it, draft) ? 1 : 0), 0), [items, draft]);
+    // Counts come from one pass over the index; deferring keeps taps instant while it runs.
+    const dDraft = React.useDeferredValue(draft);
+    const fac = useMemo(() => facetsDb(db, dDraft), [db, dDraft]);
+    const options = fac.options, matches = fac.match;
     const set = (k, v) => setDraft((d) => ({ ...d, [k]: d[k] === v ? "" : v }));
     const chip = (k, v, count) => html`<button type="button" key=${v} aria-pressed=${draft[k] === v} onClick=${() => set(k, v)}
       className=${"min-h-[38px] rounded-full border px-3.5 text-[13px] " + (draft[k] === v ? "border-transparent grad-fill text-accent-ink" : "border-line bg-surface text-fg")}>
-      ${v}${count != null && html`<span className="ml-1.5 font-mono text-[11px] opacity-60">${count.toLocaleString()}</span>`}</button>`;
+      ${v}${count != null && html`<span className="ml-1.5 font-mono text-[11px] opacity-70">${count.toLocaleString()}</span>`}</button>`;
 
     return html`<${Sheet} title="Filters" onClose=${onClose}>
       ${FILTER_DIMS.map(([k, label]) => {
@@ -826,7 +919,19 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     </button>`;
   }
 
-  function SearchLayer({ sheet, recent, byRow, onOpen, onClose, find }) {
+  // Items found live by scanning aren't in the index, so check them the plain way (there are only ever a few).
+  function extraMatches(it, f, words) {
+    for (const k of DIM_KEYS) if (f[k] !== "" && it.f[k] !== f[k]) return false;
+    if (f.stock === "in" && !(it.stock > 0)) return false;
+    if (f.stock === "out" && !(it.stock <= 0)) return false;
+    if (f.min !== "" && !(num(it.retail) >= num(f.min))) return false;
+    if (f.max !== "" && !(num(it.retail) <= num(f.max))) return false;
+    const hay = fold([it.code, it.barcode, it.name, it.brand].join(SEP));
+    return words.every((w) => hay.includes(fold(w)));
+  }
+
+  function SearchLayer({ sheet, recent, onOpen, onClose }) {
+    const { db, extras } = sheet;
     const [query, setQuery] = useState("");
     const [filters, setFilters] = useState(EMPTY_FILTERS);
     const [showFilters, setShowFilters] = useState(false);
@@ -836,70 +941,66 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     const nf = activeCount(filters);
     const active = words.length > 0 || nf > 0;
     useEffect(() => setShown(PAGE), [dq, filters]);
-    const results = useMemo(() => {
-      if (!active) return [];
-      const out = [];
-      for (const it of sheet.items) if (passes(it, filters) && (!words.length || words.every((w) => it.hay.includes(w)))) out.push(it);
-      if (words.length) {
-        const q = norm(dq).trim();
-        const score = (it) => (it.barcode.toLowerCase() === q || it.code.toLowerCase() === q ? 2 : norm(it.name).startsWith(q) ? 1 : 0);
-        out.sort((a, b) => score(b) - score(a));
-      }
-      return out;
-    }, [sheet.items, words, filters, active]);
-    const recentItems = recent.map((r) => byRow.get(r)).filter(Boolean).slice(0, 8);
-    const topDepts = useMemo(() => {
-      const c = new Map(); for (const it of sheet.items) { const d = it.f && it.f.dept; if (d && d !== "-") c.set(d, (c.get(d) || 0) + 1); }
-      return [...c.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
-    }, [sheet.items]);
+    const result = useMemo(() => {
+      if (!active || !db) return { total: 0, ex: [], idx: [] };
+      const r = searchDb(db, dq, filters);
+      const ex = extras.filter((it) => extraMatches(it, filters, words));
+      return { total: r.total + ex.length, ex, idx: r.list };
+    }, [db, extras, dq, filters, active]);
+    const rows = useMemo(() => result.ex.concat(result.idx.slice(0, Math.max(0, shown - result.ex.length)).map((i) => itemAt(db, i))), [result, shown]);
+    const available = result.ex.length + result.idx.length;
+    const recentItems = useMemo(() => recent.map((r) => sheet.itemByRow(r)).filter(Boolean).slice(0, 8), [recent, db]);
+    const topDepts = useMemo(() => (db ? facetsDb(db, EMPTY_FILTERS).options.dept.slice(0, 12) : []), [db]);
     const filterChips = Object.entries(filters).filter(([, v]) => v !== "");
     const chipLabel = (k, v) => k === "stock" ? (v === "in" ? "In stock" : "Out of stock") : k === "min" ? "From $" + v : k === "max" ? "Up to $" + v : v;
 
     return html`<${Layer} label="Search items">
+      <h1 className="sr-only">Search items</h1>
       <div className="top-safe gutter sticky z-10 grid grid-cols-[minmax(0,1fr)] gap-2.5 bg-bg pb-3 pt-3">
         <div className="flex items-center gap-2">
           <${BackButton} onClick=${onClose} />
           <div className="flex min-w-0 flex-1 items-center gap-1 rounded-2xl border border-line bg-surface pl-3 pr-1 shadow-card focus-within:border-accent">
             <span className="text-muted"><${Icon} d=${I.search} size=${20} /></span>
-            <input id="q" autoFocus type="search" value=${query} onChange=${(e) => setQuery(e.target.value)} autoComplete="off" enterKeyHint="search"
+            <input id="q" autoFocus type="search" value=${query} onChange=${(e) => setQuery(e.target.value)} autoComplete="off" autoCorrect="off" spellCheck="false" enterKeyHint="search"
               placeholder="Name, code or barcode" aria-label="Search items by name, code or barcode"
-              onKeyDown=${(e) => { if (e.key === "Enter") { const it = find(e.target.value); if (it) { e.preventDefault(); onOpen(it); } else e.target.blur(); } }}
+              onKeyDown=${(e) => { if (e.key === "Enter") { const it = sheet.find(e.target.value); if (it) { e.preventDefault(); onOpen(it); } else e.target.blur(); } }}
               className="min-w-0 flex-1 bg-transparent py-3 pl-1 text-base outline-none" />
             ${query && html`<${IconButton} label="Clear search" d=${I.x} onClick=${() => setQuery("")} />`}
           </div>
-          <button type="button" onClick=${() => setShowFilters(true)} aria-label=${"Filters" + (nf ? `, ${nf} on` : "")}
-            className=${"relative grid h-12 w-12 flex-none place-items-center rounded-2xl border " + (nf ? "grad-fill border-transparent text-accent-ink" : "border-line bg-surface")}>
+          <button type="button" onClick=${() => setShowFilters(true)} aria-label=${"Filters" + (nf ? `, ${nf} on` : "")} disabled=${!db}
+            className=${"relative grid h-12 w-12 flex-none place-items-center rounded-2xl border disabled:opacity-50 " + (nf ? "grad-fill border-transparent text-accent-ink" : "border-line bg-surface")}>
             <${Icon} d=${I.sliders} size=${20} />
             ${nf > 0 && html`<span className="absolute -right-1 -top-1 grid h-5 min-w-[20px] place-items-center rounded-full bg-fg px-1 text-[11px] font-bold text-bg">${nf}</span>`}
           </button>
         </div>
         ${filterChips.length > 0 && html`<div className="no-scrollbar flex gap-1.5 overflow-x-auto">
-          ${filterChips.map(([k, v]) => html`<button type="button" key=${k} onClick=${() => setFilters({ ...filters, [k]: "" })}
+          ${filterChips.map(([k, v]) => html`<button type="button" key=${k} onClick=${() => setFilters({ ...filters, [k]: "" })} aria-label=${"Remove filter " + chipLabel(k, v)}
             className="flex min-h-[34px] flex-none items-center gap-1.5 rounded-full bg-accent-soft px-3 text-[13px] text-accent">${chipLabel(k, v)}<${Icon} d=${I.x} size=${14} /></button>`)}
           <button type="button" onClick=${() => setFilters(EMPTY_FILTERS)} className="min-h-[34px] flex-none px-2 text-[13px] text-muted underline">Clear all</button>
         </div>`}
-        ${active && html`<p className="text-[12px] text-muted tabular-nums">${results.length.toLocaleString()} ${results.length === 1 ? "item" : "items"}</p>`}
+        ${active && html`<p className="text-[12px] text-muted tabular-nums" role="status">${result.total.toLocaleString()} ${result.total === 1 ? "item" : "items"}${available < result.total ? ` · showing the first ${available.toLocaleString()}, add a word or filter to narrow` : ""}</p>`}
       </div>
       <div className="gutter pb-10">
-        ${!sheet.items.length ? html`<div className="grid gap-2">${[0, 1, 2, 3].map((i) => html`<div key=${i} className="skeleton h-[68px] rounded-2xl"></div>`)}</div>`
+        ${!db ? html`<div className="grid gap-2">${[0, 1, 2, 3].map((i) => html`<div key=${i} className="skeleton h-[68px] rounded-2xl"></div>`)}</div>
+          ${sheet.status.kind === "error" ? html`<p className="mt-3 text-center text-[13px] text-muted">${sheetError(sheet.status.err).title}. Search will work once the item list has downloaded.</p>` : html`<p className="mt-3 text-center text-[13px] text-muted">Getting the item list…</p>`}`
         : !active ? html`<div className="fade-in grid gap-6 pt-2">
             ${recentItems.length > 0 && html`<section>
-              <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[.1em] text-muted">Recently viewed</h3>
+              <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[.1em] text-muted">Recently viewed</h2>
               <div className="grid gap-2">${recentItems.map((it) => html`<${ResultRow} key=${it.row} it=${it} words=${[]} onOpen=${onOpen} />`)}</div>
             </section>`}
             <section>
-              <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[.1em] text-muted">Browse by department</h3>
+              <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[.1em] text-muted">Browse by department</h2>
               <div className="flex flex-wrap gap-1.5">${topDepts.map(([d, c]) => html`<button type="button" key=${d} onClick=${() => setFilters({ ...EMPTY_FILTERS, dept: d })}
                 className="min-h-[40px] rounded-full border border-line bg-surface px-3.5 text-[13px] hover:border-accent">${d}<span className="ml-1.5 font-mono text-[11px] text-muted">${c.toLocaleString()}</span></button>`)}</div>
             </section>
             <p className="text-[13px] text-muted">Tip: tap Filters to narrow by supplier, category, brand, stock or price.</p>
           </div>`
-        : !results.length ? html`<div className="grid justify-items-center gap-2 py-12 text-center text-muted">
+        : !rows.length ? html`<div className="grid justify-items-center gap-2 py-12 text-center text-muted">
             <h2 className="font-display text-lg font-bold text-fg">Nothing matches</h2><p>Try fewer words or remove a filter.</p></div>`
-        : html`<div className="grid gap-2">${results.slice(0, shown).map((it) => html`<${ResultRow} key=${it.row} it=${it} words=${words} onOpen=${onOpen} />`)}</div>
-            ${results.length > shown && html`<${Button} className="mt-3 w-full" onClick=${() => setShown(shown + PAGE)}>Show more (${(results.length - shown).toLocaleString()} left)</${Button}>`}`}
+        : html`<div className="grid gap-2">${rows.map((it) => html`<${ResultRow} key=${it.row} it=${it} words=${words} onOpen=${onOpen} />`)}</div>
+            ${available > shown && html`<${Button} className="mt-3 w-full" onClick=${() => setShown(shown + PAGE)}>Show more (${Math.min(available, MAX_HITS) - shown > 0 ? (available - shown).toLocaleString() : 0} left)</${Button}>`}`}
       </div>
-      ${showFilters && html`<${FilterSheet} items=${sheet.items} filters=${filters} setFilters=${setFilters} onClose=${() => setShowFilters(false)} />`}
+      ${showFilters && db && html`<${FilterSheet} db=${db} filters=${filters} setFilters=${setFilters} onClose=${() => setShowFilters(false)} />`}
     </${Layer}>`;
   }
 
@@ -927,10 +1028,10 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       sheet.readRow(it).then((full) => {
         setLive(full);
         const st = num(full.stock), rt = full.retail === "" ? "" : num(full.retail);
-        if (st !== it.stock || rt !== it.retail) sheet.patchLocal(it.row, { stock: st, retail: rt });
+        sheet.patchLocal(it, { stock: st, retail: rt });
       }, setLiveErr);
     }, [it.row]);
-    useEffect(() => { if (sheet.hasMcp()) load(); else setLiveErr({ code: "not_connected" }); }, [it.row]);
+    useEffect(() => { if (sheet.connected) load(); else setLiveErr({ code: "not_connected" }); }, [it.row]);
     useEffect(() => {
       let off = false;
       if (sheet.connected) sheet.getPhoto(it.code).then((url) => { if (!off && url) setPhoto({ url }); }, () => {});
@@ -966,7 +1067,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
           <button type="button" onClick=${() => setMenu(!menu)} aria-label="More options" aria-expanded=${menu} className="grid h-11 w-11 place-items-center rounded-full border border-line bg-surface hover:border-accent"><${Icon} d=${I.more} sw=${3} /></button>
           ${menu && html`<div className="fade-in absolute right-0 top-12 z-20 w-[230px] overflow-hidden rounded-2xl border border-line bg-surface shadow-card" role="menu">
             ${sheet.connected && html`<button type="button" role="menuitem" onClick=${() => photoInput.current.click()} className="block w-full px-4 py-3 text-left text-[14px] hover:bg-surface2">${photo ? "Replace item photo" : "Add photo of item"}</button>`}
-            <button type="button" role="menuitem" onClick=${() => { setMenu(false); load(); }} disabled=${!sheet.hasMcp()} className="block w-full px-4 py-3 text-left text-[14px] hover:bg-surface2">Re-check the sheet</button>
+            <button type="button" role="menuitem" onClick=${() => { setMenu(false); load(); }} disabled=${!sheet.connected} className="block w-full px-4 py-3 text-left text-[14px] hover:bg-surface2">Re-check the sheet</button>
           </div>`}
           <input ref=${photoInput} type="file" accept="image/*" capture="environment" hidden onChange=${(e) => { const file = e.target.files[0]; e.target.value = ""; file && addPhoto(file); }} />
         </div>
@@ -1035,9 +1136,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     </${Layer}>`;
   }
 
-  function NotFoundLayer({ code, onClose, onScan, onSearch }) {
+  function NotFoundLayer({ code, syncing, onClose, onScan, onSearch }) {
     return html`<${Sheet} title="Not in the sheet" sub=${html`<span className="font-mono">${code}</span>`} onClose=${onClose}>
-      <p className="my-3 text-[14px] text-muted">No item has this barcode or code. The barcode may be missing from the sheet, so try searching by name.</p>
+      <p className="my-3 text-[14px] text-muted">${syncing ? "The item list is still downloading and the sheet doesn't have this barcode yet. Wait a moment and scan again, or search by name." : "No item has this barcode or code. The barcode may be missing from the sheet, so try searching by name."}</p>
       <div className="grid grid-cols-2 gap-2"><${Button} onClick=${onSearch}>Search by name</${Button}><${Button} kind="primary" className="grad-fill border-transparent" onClick=${onScan}>Scan again</${Button}></div>
     </${Sheet}>`;
   }
@@ -1050,7 +1151,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     </div>`;
   }
   function SettingsLayer({ sheet, onClose, toast }) {
-    const { conn, meta, status, items } = sheet;
+    const { conn, meta, status } = sheet;
     const [url, setUrl] = useState(conn.url);
     const [key, setKey] = useState(conn.key);
     const err = status.kind === "error" ? sheetError(status.err) : null;
@@ -1068,26 +1169,29 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       <div className="gutter pb-12">
         ${status.kind === "syncing" && html`<${SyncBar} s=${status} />`}
         ${err && html`<div className="rounded-2xl border border-bad bg-bad-soft p-3.5 text-[13px]" role="alert"><b className="block text-bad">${err.title}</b><p className="mt-0.5">${err.text}</p>
-          ${err.retry && html`<${Button} className="mt-2" onClick=${sheet.sync}>Try again</${Button}>`}</div>`}
-        ${section("Sheet connection", html`<form className="grid gap-3" onSubmit=${(e) => { e.preventDefault(); sheet.saveConn({ url: url.trim(), key: key.trim() }); toast("Connecting…"); }}>
-          <${Field} id="connUrl" label="Web app link (ends in /exec)" type="url" value=${url} onChange=${(e) => setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/…/exec" />
-          <${Field} id="connKey" label="Connection key" value=${key} onChange=${(e) => setKey(e.target.value)} autoComplete="off" />
+          ${err.retry && html`<${Button} className="mt-2" onClick=${() => sheet.sync({ force: true })}>Try again</${Button}>`}</div>`}
+        ${section("Sheet connection", html`<form className="grid gap-3" onSubmit=${(e) => { e.preventDefault(); const pasted = connFromText(url) || connFromText(key); const next = pasted || { url: url.trim(), key: key.trim() }; if (!validUrl(next.url) || !next.key) { toast("Paste the web app link (it starts with https://script.google.com) and the key."); return; } setUrl(next.url); setKey(next.key); sheet.saveConn(next); toast("Connecting…"); }}>
+          <${Field} id="connUrl" label="Web app link (ends in /exec)" type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck="false" value=${url} onChange=${(e) => setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/…/exec" />
+          <${Field} id="connKey" label="Connection key" value=${key} onChange=${(e) => setKey(e.target.value)} autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck="false" />
           <button type="submit" className=${`${btn.base} ${btn.primary} grad-fill border-transparent`}>Save and connect</button>
           ${sheet.connected && html`<button type="button" onClick=${copy} className=${`${btn.base} ${btn.plain}`}>Copy setup link for staff</button>
             <p className="text-[12px] text-muted">Send this link to staff. Opening it once on their phone connects the app, so they don't type anything. Treat it like a password: anyone with it can look up prices and costs.</p>`}
         </form>`)}
         ${sheet.connected && section("Search list", html`
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[14px]">
-            <dt className="text-muted">Items</dt><dd className="tabular-nums">${items.length.toLocaleString()}</dd>
-            <dt className="text-muted">Updated</dt><dd>${ago(meta.syncedAt)}</dd>
+            <dt className="text-muted">Items</dt><dd className="tabular-nums">${sheet.count.toLocaleString()}</dd>
+            <dt className="text-muted">Downloaded</dt><dd>${ago(meta.syncedAt)}</dd>
+            <dt className="text-muted">Last checked</dt><dd>${ago(meta.checkedAt || meta.syncedAt)}</dd>
             <dt className="text-muted">Item details</dt><dd>Read live when you open an item</dd>
           </dl>
-          <${Button} kind="primary" className="mt-3 w-full grad-fill border-transparent" disabled=${status.kind === "syncing"} onClick=${sheet.sync}>
+          <${Button} kind="primary" className="mt-3 w-full grad-fill border-transparent" disabled=${status.kind === "syncing"} onClick=${() => sheet.sync({ force: true })}>
             <${Icon} d=${I.refresh} size=${18} />${status.kind === "syncing" ? "Updating…" : "Update search list now"}</${Button}>
-          <p className="mt-2 text-[12px] text-muted">The search list updates by itself once a day. Scanning a barcode that isn't in the list yet checks the sheet directly. This app never changes the sheet.</p>`)}
+          <p className="mt-2 text-[12px] text-muted">The app checks the sheet for changes whenever you open it and downloads again only when something changed. Scanning a barcode that isn't in the list yet checks the sheet directly. This app never changes the sheet.</p>`)}
         ${Object.keys(meta.map || {}).length > 0 && section("Columns found", html`<div className="flex flex-wrap gap-1.5 text-[12px]">
           ${Object.entries(meta.map).sort((a, b) => a[1] - b[1]).map(([k, i]) => html`<span key=${k} className="rounded-md bg-surface2 px-2 py-1 font-mono">${colLetter(i)} · ${meta.header[i]}</span>`)}
         </div>`)}
+        ${section("Scanning", html`<label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-[14px]"><span>Beep when a barcode is read</span>
+          <input id="beepToggle" type="checkbox" className="h-6 w-6 accent-[var(--accent)]" defaultChecked=${(ls.get(LS_KEY + ":prefs") || {}).beep !== false} onChange=${(e) => ls.set(LS_KEY + ":prefs", { ...(ls.get(LS_KEY + ":prefs") || {}), beep: e.target.checked })} /></label>`)}
         ${section("Install on your phone", html`<p className="text-[14px] text-muted">Add this app to your home screen so it opens full screen like a regular app. On iPhone: Share → Add to Home Screen. On Android: menu ⋮ → Add to Home screen.</p>`)}
         ${section("Barcode scanner guns", html`<p className="text-[14px] text-muted">Bluetooth and USB scanners work too. Pair the scanner as a keyboard, keep this app open and scan: the item opens on its own.</p>`)}
       </div>
@@ -1099,7 +1203,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     const sheet = useSheet();
     const sheetRef = useRef(sheet); sheetRef.current = sheet;
     const prefs = useMemo(() => ls.get(LS_KEY + ":prefs") || {}, []);
-    const [layer, setLayer] = useState(null);   // {kind: "search"|"item"|"notfound"|"settings", row?, code?}
+    const [layer, setLayer] = useState(null);   // {kind: "search"|"item"|"notfound"|"settings", item?, code?}
     const [scan, setScan] = useState(null);     // null | {file?}
     const [recent, setRecent] = useState(prefs.recentRows || []);
     const [toastMsg, setToastMsg] = useState(null);
@@ -1107,41 +1211,30 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 
     const toast = useCallback((text) => setToastMsg({ text, id: Date.now() }), []);
     useEffect(() => { if (!toastMsg) return; const t = setTimeout(() => setToastMsg(null), 2800); return () => clearTimeout(t); }, [toastMsg]);
-    useEffect(() => { ls.set(LS_KEY + ":prefs", { recentRows: recent }); }, [recent]);
-
-    const { byRow, byCode } = useMemo(() => {
-      const byRow = new Map(), byCode = new Map();
-      for (const it of sheet.items) {
-        byRow.set(it.row, it);
-        for (const k of [it.barcode, it.code]) if (k) {
-          const lk = k.toLowerCase();
-          if (!byCode.has(lk)) byCode.set(lk, it);
-          const zk = "0:" + lk.replace(/^0+/, ""); if (!byCode.has(zk)) byCode.set(zk, it);
-        }
-      }
-      return { byRow, byCode };
-    }, [sheet.items]);
-    const find = useCallback((raw) => { const c = String(raw).trim().toLowerCase(); return c ? byCode.get(c) || byCode.get("0:" + c.replace(/^0+/, "")) || null : null; }, [byCode]);
-    const findRef = useRef(find); findRef.current = find;
+    useEffect(() => { ls.set(LS_KEY + ":prefs", { ...(ls.get(LS_KEY + ":prefs") || {}), recentRows: recent }); }, [recent]);
+    // Get the barcode reader ready while the home screen is idle, so the first scan starts fast.
+    useEffect(() => { const t = "requestIdleCallback" in window ? requestIdleCallback(warmUp) : setTimeout(warmUp, 800); return () => ("cancelIdleCallback" in window ? cancelIdleCallback(t) : clearTimeout(t)); }, []);
 
     const openItem = useCallback((it) => {
-      setLayer({ kind: "item", row: it.row });
+      setLayer({ kind: "item", item: it });
       setRecent((r) => [it.row, ...r.filter((x) => x !== it.row)].slice(0, 12));
     }, []);
     const handleCode = useCallback(async (raw) => {
       const code = String(raw).trim(); setScan(null); if (!code) return;
-      const it = findRef.current(code);
+      const sh = sheetRef.current;
+      const it = sh.find(code);
       if (it) return openItem(it);
-      // Not in the saved list: ask the sheet directly before giving up.
-      if (sheetRef.current.connected) {
+      // Not in the saved list (still downloading, or added to the sheet recently): ask the sheet directly.
+      if (sh.connected) {
         setToastMsg({ text: "Checking the sheet…", id: Date.now() });
-        try { const hit = await sheetRef.current.findLive(code); if (hit) { setToastMsg(null); return openItem(hit); } } catch {}
+        try { const hit = await sh.findLive(code); if (hit) { setToastMsg(null); return openItem(hit); } } catch {}
         setToastMsg(null);
       }
       setLayer({ kind: "notfound", code });
     }, [openItem]);
     // Once live camera is known to be blocked here, open the phone camera straight from the tap.
     const startScan = () => {
+      primeAudio();
       if (camState.blocked && quickPhoto.current) quickPhoto.current.click();
       else setScan({});
     };
@@ -1163,24 +1256,23 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       return () => document.removeEventListener("keydown", onKey, true);
     }, [handleCode]);
 
-    const current = layer && layer.kind === "item" ? byRow.get(layer.row) : null;
+    const current = layer && layer.kind === "item" ? layer.item : null;
     return html`
       <div className="mx-auto h-full max-w-[640px]">
         <${Home} sheet=${sheet} onScan=${startScan} onSearch=${() => setLayer({ kind: "search" })} onSettings=${() => setLayer({ kind: "settings" })} />
       </div>
       <input ref=${quickPhoto} type="file" accept="image/*" capture="environment" hidden onChange=${(e) => { const f = e.target.files[0]; e.target.value = ""; if (f) setScan({ file: f }); }} />
 
-      ${layer && layer.kind === "search" && html`<${SearchLayer} sheet=${sheet} recent=${recent} byRow=${byRow} find=${find} onOpen=${openItem} onClose=${() => setLayer(null)} />`}
+      ${layer && layer.kind === "search" && html`<${SearchLayer} sheet=${sheet} recent=${recent} onOpen=${openItem} onClose=${() => setLayer(null)} />`}
       ${layer && layer.kind === "settings" && html`<${SettingsLayer} sheet=${sheet} toast=${toast} onClose=${() => setLayer(null)} />`}
       ${current && html`<${ItemLayer} key=${current.row} it=${current} sheet=${sheet} toast=${toast} onClose=${() => setLayer(null)} onScan=${startScan} />`}
-      ${layer && layer.kind === "notfound" && html`<${NotFoundLayer} code=${layer.code} onClose=${() => setLayer(null)} onScan=${() => { setLayer(null); startScan(); }}
+      ${layer && layer.kind === "notfound" && html`<${NotFoundLayer} code=${layer.code} syncing=${sheet.status.kind === "syncing"} onClose=${() => setLayer(null)} onScan=${() => { setLayer(null); startScan(); }}
         onSearch=${() => setLayer({ kind: "search" })} />`}
       ${scan && html`<${Scanner} initialFile=${scan.file} onClose=${() => setScan(null)} onCode=${handleCode} />`}
       <${Toast} msg=${toastMsg} />`;
   }
 
   ReactDOM.createRoot(document.getElementById("root")).render(html`<${App} />`);
+  // Offline support and instant repeat visits: the service worker keeps the app's own files (not your data) on the phone.
+  if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 })();
-</script>
-</body>
-</html>

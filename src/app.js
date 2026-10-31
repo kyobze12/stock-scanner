@@ -4,7 +4,7 @@
   const html = htm.bind(React.createElement);
 
   /* ================= constants & helpers ================= */
-  const PAGE = 60, CHUNK_ROWS = 20000, PARALLEL = 2;
+  const PAGE = 60, CHUNK_ROWS = 10000, PARALLEL = 4;
   const STALE_MS = 24 * 3600 * 1000;      // re-download at least this often when the script can't report changes
   const CHECK_MS = 10 * 60 * 1000;        // ask the sheet "anything new?" at most this often
   const MAX_HITS = 1500, SCORE_LIMIT = 20000;
@@ -12,7 +12,10 @@
   const WORKER_URL = "__WORKER_URL__";    // filled in by tools/build.mjs
   const ZXING_URL = "__ZXING_URL__";
   const SEP = "\u0001";
-  const DIM_KEYS = ["dept", "subdept", "supplier", "category", "brand"];
+  // Category-like columns are stored as small dictionaries; numeric columns as typed arrays.
+  const DIM_KEYS = ["dept", "subdept", "supplier", "category", "subcategory", "brand", "type", "gst", "tracked", "collection", "byHowMany", "scale"];
+  const NUM_KEYS = ["stock", "retail", "pmap", "trade", "dpa", "uscost"];
+  const SEARCH_EXTRA = ["brand", "supplier", "dept", "subdept", "category", "subcategory"];   // searched by "All columns" along with code, barcode, name, reference
 
   const ls = {
     get(k) { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } },
@@ -37,8 +40,9 @@
     };
   })();
 
-  const num = (v) => { const x = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g, "")); return isFinite(x) ? x : 0; };
-  const numOrNaN = (v) => { const s = String(v ?? "").trim(); if (s === "") return NaN; const x = parseFloat(s.replace(/[^0-9.\-]/g, "")); return isFinite(x) ? x : NaN; };
+  // Plain numbers ("6.5", "187") take the fast path; values like "$1,234.50" fall back to stripping symbols.
+  const num = (v) => { if (v === "" || v == null) return 0; const q = +v; if (q === q) return q; const x = parseFloat(String(v).replace(/[^0-9.\-]/g, "")); return isFinite(x) ? x : 0; };
+  const numOrNaN = (v) => { if (v === "" || v == null) return NaN; const q = +v; if (q === q) return q; const s = String(v).trim(); if (s === "") return NaN; const x = parseFloat(s.replace(/[^0-9.\-]/g, "")); return isFinite(x) ? x : NaN; };
   const r2 = (x) => (x !== x ? "" : Math.round(x * 10000) / 10000);
   const qty = (v) => { const x = Number(v) || 0; return Number.isInteger(x) ? x.toLocaleString() : x.toLocaleString(undefined, { maximumFractionDigits: 2 }); };
   const money = (v, cur = "$") => (v === "" || v == null || isNaN(v) ? "—" : cur + Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
@@ -69,7 +73,8 @@
     }
     return out;
   }
-  const clean = (v) => String(v ?? "").replace(/[\u0001\n\r\t]+/g, " ").trim();
+  const BAD_CHARS = /[\u0001\n\r\t]/;
+  const clean = (v) => { const t = typeof v === "string" ? v : v == null ? "" : String(v); return (BAD_CHARS.test(t) ? t.replace(/[\u0001\n\r\t]+/g, " ") : t).trim(); };
   const facetVal = (v) => { const s = clean(v); return s === "-" || s === "#N/A" ? "" : s; };
 
   /* Columns in the item sheet, matched by header name so the sheet can gain or reorder columns. */
@@ -81,7 +86,7 @@
     type: ["item type"], collection: ["ga_collection"], tracked: ["ga_tenuestock"], ref: ["ga_charlibre1"], dpa: ["ga_dpa"],
     byHowMany: ["by how many"], scale: ["scale item"]
   };
-  const INDEX_FIELDS = ["code", "barcode", "name", "supplier", "dept", "subdept", "category", "brand", "retail", "stock", "pmap"];
+  const INDEX_FIELDS = Object.keys(COLS);   // every column is saved, so an item opens instantly and offline
   function mapColumns(header) {
     const h = header.map((x) => norm(x).trim());
     const map = {};
@@ -106,60 +111,71 @@
 
   /* ================= compact item index =================
      166,000 items as separate objects cost well over 100 MB of memory and seconds to rebuild. Instead the index is
-     two long strings (raw text for display, folded text for searching, one line per item) plus typed arrays for the numbers
-     and for each filter column (value ids into a small dictionary). It loads from storage in one step. */
+     two long strings (raw text for display, folded text for searching, one line per item), typed arrays for the numbers,
+     and one small dictionary plus id list per category-like column (supplier, department, ...). Every column of the
+     sheet is kept, so an item opens instantly and offline; a live read only refreshes the numbers. */
   function packChunk(rows, start, pos, map) {
     const g = (f, v) => (map[f] === undefined ? "" : v[pos[map[f]]] ?? "");
-    const o = { lines: [], hay: [], rows: [], stock: [], retail: [], pmap: [] };
+    const o = { raw: [], hay: [], rows: [] };
+    for (const k of NUM_KEYS) o[k] = [];
     for (const k of DIM_KEYS) o[k] = [];
     for (let i = 0; i < rows.length; i++) {
       const v = rows[i];
       const code = clean(g("code", v)), barcode = clean(g("barcode", v));
       if (!code && !barcode) continue;
-      const line = code + SEP + barcode + SEP + clean(g("name", v)) + SEP + clean(g("brand", v));
-      o.lines.push(line); o.hay.push(fold(line));
-      o.rows.push(start + i); o.stock.push(num(g("stock", v))); o.retail.push(numOrNaN(g("retail", v))); o.pmap.push(numOrNaN(g("pmap", v)));
-      for (const k of DIM_KEYS) o[k].push(facetVal(g(k, v)));
+      const raw = code + SEP + barcode + SEP + clean(g("name", v)) + SEP + clean(g("ref", v));
+      const d = {}; for (const k of DIM_KEYS) { d[k] = facetVal(g(k, v)); o[k].push(d[k]); }
+      o.raw.push(raw); o.hay.push(fold(raw + SEP + d.brand + SEP + d.supplier + SEP + d.dept + SEP + d.subdept + SEP + d.category + SEP + d.subcategory));
+      o.rows.push(start + i);
+      o.stock.push(num(g("stock", v)));
+      for (const k of NUM_KEYS) if (k !== "stock") o[k].push(numOrNaN(g(k, v)));
     }
     return o;
   }
   async function assemble(parts) {
     parts = parts.filter((p) => p.rows.length);
     const n = parts.reduce((a, p) => a + p.rows.length, 0);
-    const off = new Int32Array(n + 1), rows = new Int32Array(n);
-    const stock = new Float64Array(n), retail = new Float64Array(n), pmap = new Float64Array(n);
+    const offR = new Int32Array(n + 1), offH = new Int32Array(n + 1), rows = new Int32Array(n);
+    const numeric = {}; for (const k of NUM_KEYS) numeric[k] = new Float64Array(n);
     const dim = {}, dict = {}, maps = {};
     for (const k of DIM_KEYS) { dim[k] = new Uint32Array(n); dict[k] = [""]; maps[k] = new Map([["", 0]]); }
-    let i = 0, pos = 1;
+    let i = 0, pr = 1, ph = 1;
     for (const p of parts) {
+      const base = i;
       for (let j = 0; j < p.rows.length; j++, i++) {
-        off[i] = pos; pos += p.lines[j].length + 1;
-        rows[i] = p.rows[j]; stock[i] = p.stock[j]; retail[i] = p.retail[j]; pmap[i] = p.pmap[j];
+        offR[i] = pr; pr += p.raw[j].length + 1;
+        offH[i] = ph; ph += p.hay[j].length + 1;
+        rows[i] = p.rows[j];
+        for (const k of NUM_KEYS) numeric[k][i] = p[k][j];
       }
       for (const k of DIM_KEYS) {
-        const m = maps[k], d = dict[k], arr = dim[k], base = i - p.rows.length, vals = p[k];
+        const m = maps[k], d = dict[k], arr = dim[k], vals = p[k];
         for (let j = 0; j < vals.length; j++) { let id = m.get(vals[j]); if (id === undefined) { id = d.length; d.push(vals[j]); m.set(vals[j], id); } arr[base + j] = id; }
       }
       await yieldToMain();
     }
-    off[n] = pos;
-    const R = "\n" + parts.map((p) => p.lines.join("\n")).join("\n") + "\n";
+    offR[n] = pr; offH[n] = ph;
+    const R = "\n" + parts.map((p) => p.raw.join("\n")).join("\n") + "\n";
     await yieldToMain();
     const H = "\n" + parts.map((p) => p.hay.join("\n")).join("\n") + "\n";
-    return { v: 2, n, R, H, off, rows, stock, retail, pmap, dim, dict };
+    return { v: 3, n, R, H, offR, offH, rows, ...numeric, dim, dict };
   }
   const dictMap = (db, k) => (db.maps || (db.maps = {}))[k] || (db.maps[k] = new Map(db.dict[k].map((v, i) => [v, i])));
 
+  // What the item screen needs, in one shape whether it comes from the saved index or from a live sheet read.
+  const orBlank = (x) => (x !== x || x === null || x === undefined ? "" : Math.round(x * 10000) / 10000);
   function itemAt(db, i) {
-    const [code, barcode, name, brand] = db.R.slice(db.off[i], db.off[i + 1] - 1).split(SEP);
+    const [code, barcode, name, ref] = db.R.slice(db.offR[i], db.offR[i + 1] - 1).split(SEP);
     const f = {}; for (const k of DIM_KEYS) f[k] = db.dict[k][db.dim[k][i]];
-    return { idx: i, row: db.rows[i], code, barcode, name, brand, stock: db.stock[i], retail: r2(db.retail[i]), pmap: r2(db.pmap[i]), f };
+    return { idx: i, row: db.rows[i], code, barcode, name, ref, brand: f.brand, stock: db.stock[i], retail: orBlank(db.retail[i]), pmap: orBlank(db.pmap[i]),
+      trade: orBlank(db.trade[i]), dpa: orBlank(db.dpa[i]), uscost: orBlank(db.uscost[i]), f };
   }
   function itemFromValues(v, map, row) {
     const g = (f) => (map[f] === undefined ? "" : String(v[map[f]] ?? "").trim());
     const f = {}; for (const k of DIM_KEYS) f[k] = facetVal(g(k));
-    const r = g("retail"), p = g("pmap");
-    return { idx: -1, row, code: g("code"), barcode: g("barcode"), name: g("name"), brand: g("brand"), stock: num(g("stock")), retail: r === "" ? "" : num(r), pmap: p === "" ? "" : num(p), f, extra: true };
+    const n = (k) => orBlank(numOrNaN(g(k)));
+    return { idx: -1, row, code: g("code"), barcode: g("barcode"), name: g("name"), ref: g("ref"), brand: f.brand, stock: num(g("stock")), retail: n("retail"), pmap: n("pmap"),
+      trade: n("trade"), dpa: n("dpa"), uscost: n("uscost"), f, extra: true };
   }
   const lineAt = (off, pos) => { let lo = 0, hi = off.length - 2; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (off[mid] <= pos) lo = mid; else hi = mid - 1; } return lo; };
   function rowIndex(db, row) { const a = db.rows; let lo = 0, hi = a.length - 1; while (lo <= hi) { const m = (lo + hi) >> 1; if (a[m] === row) return m; if (a[m] < row) lo = m + 1; else hi = m - 1; } return -1; }
@@ -170,18 +186,19 @@
     // Scanners and sheets disagree about leading zeros (UPC-A 12 digits, EAN-13 13 digits, codes stored with or without padding).
     const bare = q.replace(/^0+/, "");
     const cands = [...new Set([q, bare, ...(/^\d+$/.test(bare) ? [8, 12, 13, 14].filter((L) => L >= bare.length).map((L) => bare.padStart(L, "0")) : [])].filter(Boolean))];
-    const { H, off } = db;
+    const { H, offH } = db;
     for (const c of cands) {
       let p = H.indexOf("\n" + c + SEP);
-      if (p >= 0) return lineAt(off, p + 1);
+      if (p >= 0) return lineAt(offH, p + 1);
       p = 0;
-      while ((p = H.indexOf(SEP + c + SEP, p)) >= 0) { const i = lineAt(off, p); if (H.indexOf(SEP, off[i]) === p) return i; p++; }
+      while ((p = H.indexOf(SEP + c + SEP, p)) >= 0) { const i = lineAt(offH, p); if (H.indexOf(SEP, offH[i]) === p) return i; p++; }
     }
     return -1;
   }
 
-  const FILTER_DIMS = [["dept", "Department"], ["subdept", "Subdepartment"], ["supplier", "Supplier"], ["category", "Category"], ["brand", "Brand"]];
-  const EMPTY_FILTERS = { dept: "", subdept: "", supplier: "", category: "", brand: "", stock: "", min: "", max: "" };
+  const FILTER_DIMS = [["dept", "Department"], ["subdept", "Subdepartment"], ["supplier", "Supplier"], ["category", "Category"], ["subcategory", "Subcategory"], ["brand", "Brand"], ["type", "Item type"], ["gst", "Tax"]];
+  const FILTER_KEYS = FILTER_DIMS.map(([k]) => k);
+  const EMPTY_FILTERS = { ...Object.fromEntries(FILTER_KEYS.map((k) => [k, ""])), stock: "", min: "", max: "" };
   const activeCount = (f) => Object.entries(f).filter(([, v]) => v !== "").length;
   // Non-column conditions (stock, price). Returns null when there are none.
   function extraTest(db, f) {
@@ -192,50 +209,111 @@
   }
   function makeFilter(db, f) {
     const conds = [];
-    for (const k of DIM_KEYS) if (f[k] !== "") { const id = dictMap(db, k).get(f[k]); conds.push(id === undefined ? () => false : (i) => db.dim[k][i] === id); }
+    for (const k of FILTER_KEYS) if (f[k] !== "") { const id = dictMap(db, k).get(f[k]); conds.push(id === undefined ? () => false : (i) => db.dim[k][i] === id); }
     const ex = extraTest(db, f); if (ex) conds.push(ex);
     if (!conds.length) return null;
     return (i) => { for (let c = 0; c < conds.length; c++) if (!conds[c](i)) return false; return true; };
   }
-  /* Text search over the whole index with a handful of string scans instead of a loop over 166k objects:
-     find the longest word with indexOf, then check the other words on just those lines. */
-  function searchDb(db, rawQuery, f) {
-    const words = fold(rawQuery).split(/\s+/).filter(Boolean);
+
+  /* ---- search by column ----
+     Free words search the column picked with the chips (default: all text columns). Typed terms like  supplier:SH  or
+     retail:5-10  search one column whatever the chip says; several terms must all match. */
+  const FIELD_ALIASES = { name: "name", item: "name", description: "name", code: "code", sku: "code", barcode: "barcode", upc: "barcode", ean: "barcode", ref: "ref", reference: "ref",
+    supplier: "supplier", dept: "dept", department: "dept", subdept: "subdept", subdepartment: "subdept", category: "category", cat: "category", subcategory: "subcategory", subcat: "subcategory",
+    brand: "brand", type: "type", gst: "gst", tax: "gst", collection: "collection", retail: "retail", price: "retail", trade: "trade", cost: "pmap", pmap: "pmap", last: "dpa", dpa: "dpa", usd: "uscost", uscost: "uscost", stock: "stock", qty: "stock" };
+  const SEARCH_SCOPES = [["all", "All columns"], ["name", "Name"], ["code", "Code"], ["barcode", "Barcode"], ["supplier", "Supplier"], ["dept", "Department"], ["subdept", "Subdepartment"],
+    ["category", "Category"], ["subcategory", "Subcategory"], ["brand", "Brand"], ["ref", "Reference"], ["type", "Item type"], ["gst", "Tax"], ["retail", "Retail price"], ["trade", "Trade price"], ["pmap", "Avg cost"], ["dpa", "Last purchase"], ["stock", "Stock"]];
+  const NUMERIC_SCOPES = new Set(["retail", "trade", "pmap", "dpa", "uscost", "stock"]);
+  const TEXT_AT = { code: 0, barcode: 1, name: 2, ref: 3 };   // position of each text column in a line
+
+  function parseQuery(raw, scope) {
+    const groups = {};
+    const add = (f, text) => { const w = fold(text).split(/\s+/).filter(Boolean); if (w.length) (groups[f] || (groups[f] = [])).push(...w); };
+    const re = /(\w+):"([^"]*)"|(\w+):(\S+)|"([^"]*)"|(\S+)/g;
+    let m;
+    while ((m = re.exec(String(raw)))) {
+      const key = (m[1] || m[3] || "").toLowerCase(), field = FIELD_ALIASES[key];
+      if (field) add(field, m[1] ? m[2] : m[4]);
+      else add(scope, m[5] !== undefined ? m[5] : m[0]);
+    }
+    return groups;
+  }
+  function numberTest(arr, q) {
+    q = String(q).trim().replace(/[$,\s]/g, "");
+    let m;
+    if ((m = q.match(/^(<=|>=|<|>)(-?\d*\.?\d+)$/))) { const v = parseFloat(m[2]); return { "<": (i) => arr[i] < v, "<=": (i) => arr[i] <= v, ">": (i) => arr[i] > v, ">=": (i) => arr[i] >= v }[m[1]]; }
+    if ((m = q.match(/^(-?\d*\.?\d+)(?:-|to|\.\.)(-?\d*\.?\d+)$/))) { const a = parseFloat(m[1]), b = parseFloat(m[2]); return (i) => arr[i] >= Math.min(a, b) && arr[i] <= Math.max(a, b); }
+    if ((m = q.match(/^-?\d*\.?\d+$/))) { const v = parseFloat(q); return (i) => Math.abs(arr[i] - v) < 0.005; }
+    return () => false;
+  }
+  function buildPlan(db, groups) {
+    const text = [], tests = [];
+    for (const [f, words] of Object.entries(groups)) {
+      if (f === "all" || f in TEXT_AT) text.push({ f, words });
+      else if (NUMERIC_SCOPES.has(f)) tests.push(numberTest(db[f], words.join("")));
+      else if (db.dict[f]) {     // a category-like column: compare the few distinct values, then test one id per item
+        const dict = db.dict[f], arr = db.dim[f], ok = new Uint8Array(dict.length), exact = new Uint8Array(dict.length);
+        let any = false, anyExact = false;
+        const whole = words.join(" ");
+        for (let id = 1; id < dict.length; id++) {
+          const v = fold(dict[id]);
+          if (words.every((w) => v.includes(w))) { ok[id] = 1; any = true; if (v === whole) { exact[id] = 1; anyExact = true; } }
+        }
+        const use = anyExact ? exact : ok;
+        tests.push(any ? (i) => use[arr[i]] === 1 : () => false);
+      }
+    }
+    return { text, tests };
+  }
+  const fieldText = (H, offH, i, at) => { let s = offH[i]; for (let k = 0; k < at; k++) s = H.indexOf(SEP, s) + 1; const e = H.indexOf(SEP, s); return H.slice(s, e < 0 ? offH[i + 1] - 1 : e); };
+
+  /* Text search over the whole index with a few string scans instead of a loop over 166k objects: find the longest word
+     with indexOf, then check the remaining words on just those lines. */
+  function searchDb(db, rawQuery, scope, f) {
+    const plan = buildPlan(db, parseQuery(rawQuery, scope));
     const fp = makeFilter(db, f);
+    const preds = plan.tests.slice(); if (fp) preds.push(fp);
+    const pass = preds.length ? (i) => { for (let c = 0; c < preds.length; c++) if (!preds[c](i)) return false; return true; } : null;
     const exact = [], starts = [], rest = [];
     let total = 0;
-    if (!words.length) {
-      for (let i = 0; i < db.n; i++) if (!fp || fp(i)) { total++; if (rest.length < MAX_HITS) rest.push(i); }
+    if (!plan.text.length) {
+      for (let i = 0; i < db.n; i++) if (!pass || pass(i)) { total++; if (rest.length < MAX_HITS) rest.push(i); }
       return { total, list: rest };
     }
-    let anchor = words[0]; for (const w of words) if (w.length > anchor.length) anchor = w;
-    const q = words.join(" "), { H, off } = db;
+    let anchor = "";
+    for (const t of plan.text) for (const w of t.words) if (w.length > anchor.length) anchor = w;
+    const { H, offH } = db;
+    const single = plan.text.length === 1 && plan.text[0].f === "all" ? plan.text[0].words.join(" ") : null;   // rank exact code/barcode and names that start with it
     let pos = 0, i = 0;
     for (;;) {
       pos = H.indexOf(anchor, pos); if (pos < 0) break;
-      while (off[i + 1] <= pos) i++;
-      const start = off[i], end = off[i + 1] - 1;
+      while (offH[i + 1] <= pos) i++;
+      const start = offH[i], end = offH[i + 1] - 1;
       let ok = true;
-      if (words.length > 1) { const line = H.slice(start, end); for (const w of words) if (w !== anchor && !line.includes(w)) { ok = false; break; } }
-      if (ok && (!fp || fp(i))) {
+      for (const t of plan.text) {
+        const hay = t.f === "all" ? H.slice(start, end) : fieldText(H, offH, i, TEXT_AT[t.f]);
+        for (const w of t.words) if (!hay.includes(w)) { ok = false; break; }
+        if (!ok) break;
+      }
+      if (ok && (!pass || pass(i))) {
         total++;
-        if (total <= SCORE_LIMIT) {     // rank exact code/barcode first, then names that start with the query
+        if (single !== null && total <= SCORE_LIMIT) {
           const s1 = H.indexOf(SEP, start), s2 = H.indexOf(SEP, s1 + 1);
-          if (H.startsWith(q + SEP, start) || H.startsWith(q + SEP, s1 + 1)) { exact.push(i); }
-          else if (H.startsWith(q, s2 + 1)) { if (starts.length < MAX_HITS) starts.push(i); }
+          if (H.startsWith(single + SEP, start) || H.startsWith(single + SEP, s1 + 1)) exact.push(i);
+          else if (H.startsWith(single, s2 + 1)) { if (starts.length < MAX_HITS) starts.push(i); }
           else if (rest.length < MAX_HITS) rest.push(i);
         } else if (rest.length < MAX_HITS) rest.push(i);
       }
-      pos = off[i + 1];
+      pos = offH[i + 1];
     }
     return { total, list: exact.concat(starts, rest).slice(0, MAX_HITS) };
   }
   /* Option counts for every filter column in one pass: an option's count ignores its own column's choice, so the
      other options stay visible as you pick. */
   function facetsDb(db, f) {
-    const counts = {}; for (const k of DIM_KEYS) counts[k] = new Uint32Array(db.dict[k].length);
-    const want = DIM_KEYS.map((k) => (f[k] === "" ? -1 : (dictMap(db, k).get(f[k]) ?? -2)));
-    const arrs = DIM_KEYS.map((k) => db.dim[k]), cnt = DIM_KEYS.map((k) => counts[k]), D = DIM_KEYS.length;
+    const counts = {}; for (const k of FILTER_KEYS) counts[k] = new Uint32Array(db.dict[k].length);
+    const want = FILTER_KEYS.map((k) => (f[k] === "" ? -1 : (dictMap(db, k).get(f[k]) ?? -2)));
+    const arrs = FILTER_KEYS.map((k) => db.dim[k]), cnt = FILTER_KEYS.map((k) => counts[k]), D = FILTER_KEYS.length;
     const ex = extraTest(db, f);
     let match = 0;
     for (let i = 0; i < db.n; i++) {
@@ -246,7 +324,7 @@
       else if (fails === 1) cnt[which][arrs[which][i]]++;
     }
     const options = {};
-    for (const k of DIM_KEYS) {
+    for (const k of FILTER_KEYS) {
       const out = [], c = counts[k], dict = db.dict[k];
       for (let id = 1; id < c.length; id++) if (c[id] > 0) out.push([dict[id], c[id]]);
       out.sort((a, b) => b[1] - a[1]); options[k] = out;
@@ -285,7 +363,7 @@
     const syncing = useRef(false);
     const photoIdx = useRef(null);
     const connected = !!(conn.url && conn.key);
-    const cacheKey = "idx4:" + conn.url;
+    const cacheKey = "idx5:" + conn.url;
 
     const api = useCallback(async (action, params = {}) => {
       const c = connRef.current;
@@ -326,6 +404,8 @@
         const starts = []; for (let s = 2; s <= m0.lastRow; s += CHUNK_ROWS) starts.push(s);
         const parts = new Array(starts.length);
         let next = 0, done = 0;
+        const t0 = Date.now();
+        const eta = () => (done > 0 && done < total ? Math.max(1, Math.round(((Date.now() - t0) / done) * (total - done) / 1000)) : 0);
         setStatus({ kind: "syncing", done: 0, total, quiet: !!prev });
         const worker = async () => {
           while (next < starts.length) {
@@ -333,7 +413,7 @@
             const res = await api("index", { start: s, count: CHUNK_ROWS, cols: cols.join(",") });
             parts[k] = packChunk(res.rows || [], s, pos, map);
             done += (res.rows || []).length;
-            setStatus({ kind: "syncing", done: Math.min(done, total), total, quiet: !!prev });
+            setStatus({ kind: "syncing", done: Math.min(done, total), total, eta: eta(), quiet: !!prev });
             await yieldToMain();
           }
         };
@@ -353,10 +433,11 @@
       (async () => {
         if (!connected) { setDb(null); setStatus({ kind: "error", err: { code: "not_connected" } }); return; }
         setStatus({ kind: "loading" });
+        idb.del("idx4:" + conn.url + ":db"); idb.del("idx4:" + conn.url + ":meta");   // saved list from the previous app version
         const [cdb, cmeta] = await Promise.all([idb.get(cacheKey + ":db"), idb.get(cacheKey + ":meta")]);
         if (cancelled) return;
-        if (cdb && cdb.v === 2 && cmeta) { dbRef.current = cdb; metaRef.current = cmeta; setDb(cdb); setMeta(cmeta); setStatus({ kind: "ready" }); }
-        if (!(cdb && cdb.v === 2 && cmeta) || Date.now() - (cmeta.checkedAt || cmeta.syncedAt || 0) > CHECK_MS) sync({ quiet: true });
+        if (cdb && cdb.v === 3 && cmeta) { dbRef.current = cdb; metaRef.current = cmeta; setDb(cdb); setMeta(cmeta); setStatus({ kind: "ready" }); }
+        if (!(cdb && cdb.v === 3 && cmeta) || Date.now() - (cmeta.checkedAt || cmeta.syncedAt || 0) > CHECK_MS) sync({ quiet: true });
       })();
       return () => { cancelled = true; };
     }, [cacheKey, connected]);
@@ -843,14 +924,14 @@
     const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
     if (s.quiet) return html`<p className="text-[12px] text-muted tabular-nums" role="status">Updating the item list in the background… ${pct}%</p>`;
     return html`<div className="rounded-2xl border border-line bg-surface/80 px-3.5 py-2.5 text-left text-[12px] backdrop-blur" role="status">
-      <div className="flex justify-between gap-2"><span>Getting items from Google Sheets…</span><span className="tabular-nums text-muted">${s.total ? pct + "%" : ""}</span></div>
+      <div className="flex justify-between gap-2"><span>Getting items from Google Sheets…${s.eta ? " about " + (s.eta >= 90 ? Math.round(s.eta / 60) + " min" : s.eta + " s") + " left" : ""}</span><span className="tabular-nums text-muted">${s.total ? pct + "%" : ""}</span></div>
       <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface2"><div className="grad-fill h-full rounded-full transition-all duration-500" style=${{ width: Math.max(4, pct) + "%" }}></div></div>
     </div>`;
   }
 
   /* ================= layer shell ================= */
-  function Layer({ children, label }) {
-    return html`<div role="dialog" aria-modal="true" aria-label=${label} className="layer-in fixed inset-0 z-40 overflow-y-auto overflow-x-hidden bg-bg pt-safe pb-safe">${children}</div>`;
+  function Layer({ children, label, innerRef, flush }) {
+    return html`<div ref=${innerRef} role="dialog" aria-modal="true" aria-label=${label} className=${"layer-in fixed inset-0 z-40 overflow-y-auto overflow-x-hidden overscroll-contain bg-bg pt-safe " + (flush ? "" : "pb-safe")}>${children}</div>`;
   }
   const BackButton = ({ onClick, label = "Back" }) => html`
     <button type="button" onClick=${onClick} aria-label=${label} className="grid h-11 w-11 flex-none place-items-center rounded-full border border-line bg-surface hover:border-accent"><${Icon} d=${I.back} /></button>`;
@@ -903,8 +984,17 @@
     </${Sheet}>`;
   }
 
-  function ResultRow({ it, words, onOpen }) {
+  // The value of one column for display, e.g. the supplier when you search by supplier.
+  function columnText(it, f) {
+    if (f in TEXT_AT || f === "ref") return it[f] || "";
+    if (NUMERIC_SCOPES.has(f)) return it[f] === "" || it[f] === undefined ? "" : f === "stock" ? qty(it[f]) : money(it[f]);
+    return (it.f && it.f[f]) || "";
+  }
+  const SCOPE_LABEL = Object.fromEntries(SEARCH_SCOPES);
+
+  function ResultRow({ it, words, scope, onOpen }) {
     const out = it.stock <= 0;
+    const shown = scope !== "all" && scope !== "name" && scope !== "code" && scope !== "stock" && scope !== "retail" ? columnText(it, scope) : "";
     return html`<button type="button" onClick=${() => onOpen(it)}
       className="grid w-full grid-cols-[1fr_auto] items-center gap-x-3 gap-y-0.5 rounded-2xl border border-line bg-surface px-4 py-3 text-left transition-colors hover:border-accent">
       <span className="min-w-0 break-words font-semibold"><${Highlight} text=${it.name || it.code} words=${words} /></span>
@@ -914,45 +1004,54 @@
       </span>
       <span className="flex min-w-0 flex-wrap gap-x-2.5 text-[12px] text-muted">
         <span className="break-all font-mono"><${Highlight} text=${it.code} words=${words} /></span>
-        ${it.f && it.f.dept && html`<span>${it.f.dept}${it.f.subdept ? " · " + it.f.subdept : ""}</span>`}
+        ${shown ? html`<span><span className="opacity-70">${SCOPE_LABEL[scope]}:</span> <${Highlight} text=${shown} words=${words} /></span>`
+          : it.f && it.f.dept && html`<span>${it.f.dept}${it.f.subdept ? " · " + it.f.subdept : ""}</span>`}
       </span>
     </button>`;
   }
 
   // Items found live by scanning aren't in the index, so check them the plain way (there are only ever a few).
-  function extraMatches(it, f, words) {
-    for (const k of DIM_KEYS) if (f[k] !== "" && it.f[k] !== f[k]) return false;
+  function extraMatches(it, f, groups) {
+    for (const k of FILTER_KEYS) if (f[k] !== "" && it.f[k] !== f[k]) return false;
     if (f.stock === "in" && !(it.stock > 0)) return false;
     if (f.stock === "out" && !(it.stock <= 0)) return false;
     if (f.min !== "" && !(num(it.retail) >= num(f.min))) return false;
     if (f.max !== "" && !(num(it.retail) <= num(f.max))) return false;
-    const hay = fold([it.code, it.barcode, it.name, it.brand].join(SEP));
-    return words.every((w) => hay.includes(fold(w)));
+    for (const [field, words] of Object.entries(groups)) {
+      if (NUMERIC_SCOPES.has(field)) continue;
+      const hay = field === "all" ? fold([it.code, it.barcode, it.name, it.ref, ...SEARCH_EXTRA.map((k) => it.f[k])].join(SEP)) : fold(columnText(it, field));
+      if (!words.every((w) => hay.includes(w))) return false;
+    }
+    return true;
   }
 
   function SearchLayer({ sheet, recent, onOpen, onClose }) {
     const { db, extras } = sheet;
     const [query, setQuery] = useState("");
+    const [scope, setScope] = useState("all");
     const [filters, setFilters] = useState(EMPTY_FILTERS);
     const [showFilters, setShowFilters] = useState(false);
     const [shown, setShown] = useState(PAGE);
     const dq = React.useDeferredValue(query);
-    const words = useMemo(() => norm(dq).split(/\s+/).filter(Boolean), [dq]);
+    const groups = useMemo(() => parseQuery(dq, scope), [dq, scope]);
+    const words = useMemo(() => Object.values(groups).flat(), [groups]);
     const nf = activeCount(filters);
-    const active = words.length > 0 || nf > 0;
-    useEffect(() => setShown(PAGE), [dq, filters]);
+    const active = dq.trim() !== "" || nf > 0;
+    useEffect(() => setShown(PAGE), [dq, scope, filters]);
     const result = useMemo(() => {
       if (!active || !db) return { total: 0, ex: [], idx: [] };
-      const r = searchDb(db, dq, filters);
-      const ex = extras.filter((it) => extraMatches(it, filters, words));
+      const r = searchDb(db, dq, scope, filters);
+      const ex = extras.filter((it) => extraMatches(it, filters, groups));
       return { total: r.total + ex.length, ex, idx: r.list };
-    }, [db, extras, dq, filters, active]);
+    }, [db, extras, dq, scope, filters, active]);
     const rows = useMemo(() => result.ex.concat(result.idx.slice(0, Math.max(0, shown - result.ex.length)).map((i) => itemAt(db, i))), [result, shown]);
     const available = result.ex.length + result.idx.length;
     const recentItems = useMemo(() => recent.map((r) => sheet.itemByRow(r)).filter(Boolean).slice(0, 8), [recent, db]);
     const topDepts = useMemo(() => (db ? facetsDb(db, EMPTY_FILTERS).options.dept.slice(0, 12) : []), [db]);
     const filterChips = Object.entries(filters).filter(([, v]) => v !== "");
     const chipLabel = (k, v) => k === "stock" ? (v === "in" ? "In stock" : "Out of stock") : k === "min" ? "From $" + v : k === "max" ? "Up to $" + v : v;
+    const numeric = NUMERIC_SCOPES.has(scope);
+    const hint = scope === "all" ? "Search all columns" : numeric ? `${SCOPE_LABEL[scope]}: 5, 5-10, >20` : `Search in ${SCOPE_LABEL[scope].toLowerCase()}`;
 
     return html`<${Layer} label="Search items">
       <h1 className="sr-only">Search items</h1>
@@ -961,8 +1060,8 @@
           <${BackButton} onClick=${onClose} />
           <div className="flex min-w-0 flex-1 items-center gap-1 rounded-2xl border border-line bg-surface pl-3 pr-1 shadow-card focus-within:border-accent">
             <span className="text-muted"><${Icon} d=${I.search} size=${20} /></span>
-            <input id="q" autoFocus type="search" value=${query} onChange=${(e) => setQuery(e.target.value)} autoComplete="off" autoCorrect="off" spellCheck="false" enterKeyHint="search"
-              placeholder="Name, code or barcode" aria-label="Search items by name, code or barcode"
+            <input id="q" autoFocus type="search" value=${query} onChange=${(e) => setQuery(e.target.value)} autoComplete="off" autoCorrect="off" spellCheck="false" autoCapitalize="none" enterKeyHint="search"
+              placeholder=${hint} aria-label=${"Search items. " + (scope === "all" ? "All columns" : "Column: " + SCOPE_LABEL[scope])}
               onKeyDown=${(e) => { if (e.key === "Enter") { const it = sheet.find(e.target.value); if (it) { e.preventDefault(); onOpen(it); } else e.target.blur(); } }}
               className="min-w-0 flex-1 bg-transparent py-3 pl-1 text-base outline-none" />
             ${query && html`<${IconButton} label="Clear search" d=${I.x} onClick=${() => setQuery("")} />`}
@@ -973,6 +1072,10 @@
             ${nf > 0 && html`<span className="absolute -right-1 -top-1 grid h-5 min-w-[20px] place-items-center rounded-full bg-fg px-1 text-[11px] font-bold text-bg">${nf}</span>`}
           </button>
         </div>
+        <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1" role="group" aria-label="Which column to search">
+          ${SEARCH_SCOPES.map(([k, label]) => html`<button type="button" key=${k} aria-pressed=${scope === k} onClick=${() => setScope(k)}
+            className=${"min-h-[36px] flex-none rounded-full border px-3 text-[13px] " + (scope === k ? "border-fg bg-fg text-bg" : "border-line bg-surface text-muted")}>${label}</button>`)}
+        </div>
         ${filterChips.length > 0 && html`<div className="no-scrollbar flex gap-1.5 overflow-x-auto">
           ${filterChips.map(([k, v]) => html`<button type="button" key=${k} onClick=${() => setFilters({ ...filters, [k]: "" })} aria-label=${"Remove filter " + chipLabel(k, v)}
             className="flex min-h-[34px] flex-none items-center gap-1.5 rounded-full bg-accent-soft px-3 text-[13px] text-accent">${chipLabel(k, v)}<${Icon} d=${I.x} size=${14} /></button>`)}
@@ -982,23 +1085,26 @@
       </div>
       <div className="gutter pb-10">
         ${!db ? html`<div className="grid gap-2">${[0, 1, 2, 3].map((i) => html`<div key=${i} className="skeleton h-[68px] rounded-2xl"></div>`)}</div>
-          ${sheet.status.kind === "error" ? html`<p className="mt-3 text-center text-[13px] text-muted">${sheetError(sheet.status.err).title}. Search will work once the item list has downloaded.</p>` : html`<p className="mt-3 text-center text-[13px] text-muted">Getting the item list…</p>`}`
+          ${sheet.status.kind === "error" ? html`<p className="mt-3 text-center text-[13px] text-muted">${sheetError(sheet.status.err).title}. Search will work once the item list has downloaded.</p>` : html`<p className="mt-3 text-center text-[13px] text-muted">Getting the item list…${sheet.status.kind === "syncing" && sheet.status.total ? " " + Math.round((sheet.status.done / sheet.status.total) * 100) + "%" : ""}</p>`}`
         : !active ? html`<div className="fade-in grid gap-6 pt-2">
             ${recentItems.length > 0 && html`<section>
               <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[.1em] text-muted">Recently viewed</h2>
-              <div className="grid gap-2">${recentItems.map((it) => html`<${ResultRow} key=${it.row} it=${it} words=${[]} onOpen=${onOpen} />`)}</div>
+              <div className="grid gap-2">${recentItems.map((it) => html`<${ResultRow} key=${it.row} it=${it} words=${[]} scope="all" onOpen=${onOpen} />`)}</div>
             </section>`}
             <section>
               <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[.1em] text-muted">Browse by department</h2>
               <div className="flex flex-wrap gap-1.5">${topDepts.map(([d, c]) => html`<button type="button" key=${d} onClick=${() => setFilters({ ...EMPTY_FILTERS, dept: d })}
                 className="min-h-[40px] rounded-full border border-line bg-surface px-3.5 text-[13px] hover:border-accent">${d}<span className="ml-1.5 font-mono text-[11px] text-muted">${c.toLocaleString()}</span></button>`)}</div>
             </section>
-            <p className="text-[13px] text-muted">Tip: tap Filters to narrow by supplier, category, brand, stock or price.</p>
+            <section className="rounded-2xl border border-line bg-surface p-4 text-[13px] text-muted">
+              <h2 className="mb-1 text-[11px] font-semibold uppercase tracking-[.1em]">Search any column</h2>
+              <p>Pick a column above, or type it: <span className="font-mono text-fg">supplier:SH</span> <span className="font-mono text-fg">dept:GR</span> <span className="font-mono text-fg">brand:zeta</span> <span className="font-mono text-fg">retail:5-10</span> <span className="font-mono text-fg">stock:>20</span>. Combine as many as you like.</p>
+            </section>
           </div>`
         : !rows.length ? html`<div className="grid justify-items-center gap-2 py-12 text-center text-muted">
-            <h2 className="font-display text-lg font-bold text-fg">Nothing matches</h2><p>Try fewer words or remove a filter.</p></div>`
-        : html`<div className="grid gap-2">${rows.map((it) => html`<${ResultRow} key=${it.row} it=${it} words=${words} onOpen=${onOpen} />`)}</div>
-            ${available > shown && html`<${Button} className="mt-3 w-full" onClick=${() => setShown(shown + PAGE)}>Show more (${Math.min(available, MAX_HITS) - shown > 0 ? (available - shown).toLocaleString() : 0} left)</${Button}>`}`}
+            <h2 className="font-display text-lg font-bold text-fg">Nothing matches</h2><p>Try fewer words, another column, or remove a filter.</p></div>`
+        : html`<div className="grid gap-2">${rows.map((it) => html`<${ResultRow} key=${it.row} it=${it} words=${words} scope=${scope} onOpen=${onOpen} />`)}</div>
+            ${available > shown && html`<${Button} className="mt-3 w-full" onClick=${() => setShown(shown + PAGE)}>Show more (${(available - shown).toLocaleString()} left)</${Button}>`}`}
       </div>
       ${showFilters && db && html`<${FilterSheet} db=${db} filters=${filters} setFilters=${setFilters} onClose=${() => setShowFilters(false)} />`}
     </${Layer}>`;
@@ -1014,24 +1120,31 @@
     return new Promise((res) => c.toBlob(res, "image/jpeg", 0.82));
   }
 
-  /* ================= item detail (view only, live from the sheet) ================= */
+  /* ================= item detail =================
+     Everything on this screen comes from the saved list, so it appears the moment an item opens (even offline).
+     A live read of the item's row then refreshes the numbers in place. */
+  function rowValues(full) {
+    const f = {}; for (const k of DIM_KEYS) f[k] = facetVal(full[k]);
+    const n = (k) => orBlank(numOrNaN(full[k]));
+    return { name: full.name, code: full.code, barcode: full.barcode, ref: full.ref, f, stock: num(full.stock), retail: n("retail"), pmap: n("pmap"), trade: n("trade"), dpa: n("dpa"), uscost: n("uscost") };
+  }
+  const has = (x) => x !== "" && x !== undefined && x !== null && x !== "-" && x !== "#N/A";
+
   function ItemLayer({ it, sheet, onClose, onScan, toast }) {
     const [live, setLive] = useState(null);
-    const [liveErr, setLiveErr] = useState(null);
+    const [state, setState] = useState("checking");   // checking | live | offline | moved
     const [menu, setMenu] = useState(false);
     const [photo, setPhoto] = useState(null);
     const [uploading, setUploading] = useState(false);
-    const photoInput = useRef(null);
+    const photoInput = useRef(null), scroller = useRef(null);
 
     const load = useCallback(() => {
-      setLiveErr(null);
-      sheet.readRow(it).then((full) => {
-        setLive(full);
-        const st = num(full.stock), rt = full.retail === "" ? "" : num(full.retail);
-        sheet.patchLocal(it, { stock: st, retail: rt });
-      }, setLiveErr);
+      setState("checking");
+      sheet.readRow(it).then((full) => { const v = rowValues(full); setLive(v); setState("live"); sheet.patchLocal(it, { stock: v.stock, retail: v.retail }); },
+        (e) => setState(e && e.code === "row_moved" ? "moved" : "offline"));
     }, [it.row]);
-    useEffect(() => { if (sheet.connected) load(); else setLiveErr({ code: "not_connected" }); }, [it.row]);
+    useEffect(() => { if (scroller.current) scroller.current.scrollTop = 0; }, [it.row]);
+    useEffect(() => { if (sheet.connected) load(); else setState("offline"); }, [it.row]);
     useEffect(() => {
       let off = false;
       if (sheet.connected) sheet.getPhoto(it.code).then((url) => { if (!off && url) setPhoto({ url }); }, () => {});
@@ -1048,97 +1161,83 @@
       setUploading(false);
     }
 
-    const f = live || {};
-    const stock = live ? num(live.stock) : it.stock;
-    const retail = live ? (live.retail === "" ? "" : num(live.retail)) : it.retail;
-    const pmap = live ? (live.pmap === "" ? "" : num(live.pmap)) : it.pmap;
-    const out = stock <= 0;
-    const margin = retail && pmap !== "" && pmap > 0 ? ((retail - pmap) / retail) * 100 : null;
-    const ok = (v) => v && v !== "-" && v !== "#N/A" && v !== "0";
-    const dl = (label, v) => ok(v) ? html`<div key=${label} className="flex justify-between gap-3 border-b border-dashed border-line py-2.5 last:border-0"><dt className="text-muted">${label}</dt><dd className="break-all text-right font-mono">${v}</dd></div>` : null;
-    const price = (label, v) => html`<div key=${label} className="min-w-0 rounded-xl bg-surface2 px-3 py-2.5"><small className="block truncate text-[11px] text-muted">${label}</small><b className="font-mono text-[1rem] tabular-nums">${v}</b></div>`;
+    const v = live || it;
+    const f = v.f || {};
+    const out = v.stock <= 0;
+    const margin = v.retail && v.pmap && v.pmap > 0 ? ((v.retail - v.pmap) / v.retail) * 100 : null;
+    const tax = f.gst === "NOR" ? "Standard GST (NOR)" : f.gst === "EXO" ? "Exempt (EXO)" : f.gst;
+    const specs = [["Code", v.code, 1], ["Barcode", v.barcode, 1], ["Supplier", f.supplier], ["Department", f.dept], ["Subdepartment", f.subdept], ["Category", f.category], ["Subcategory", f.subcategory],
+      ["Brand", f.brand], ["Item type", f.type], ["Reference", v.ref, 1], ["Collection", f.collection], ["Tax", tax], ["Stock tracked", f.tracked ? "Yes" : "No"],
+      ["By how many", f.byHowMany !== "0" ? f.byHowMany : ""], ["Scale item", f.scale], ["Sheet row", String(it.row), 1]].filter(([, x]) => has(x));
+    const prices = [["Trade", v.trade], ["Avg cost", v.pmap], ["Last buy", v.dpa], ["US cost", v.uscost]].filter(([, x]) => has(x) && Number(x) !== 0).map(([l, x]) => [l, money(x)]);
+    if (margin !== null) prices.push(["Margin", margin.toFixed(1) + "%"]);
+    const pill = state === "live" ? ["bg-accent-soft text-accent", "● Live from sheet"] : state === "checking" ? ["bg-surface2 text-muted", "Checking sheet…"] : ["bg-surface2 text-muted", state === "moved" ? "Row moved" : "Saved copy"];
 
-    return html`<${Layer} label=${it.name || it.code}>
-      <div className="top-safe gutter sticky z-10 flex items-center justify-between bg-bg/80 py-3 backdrop-blur">
-        <${BackButton} onClick=${onClose} />
-        <span className=${"rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide " + (live ? "bg-accent-soft text-accent" : "bg-surface2 text-muted")}>
-          ${live ? "● Live from sheet" : liveErr ? "Saved list" : "Checking sheet…"}</span>
-        <div className="relative">
-          <button type="button" onClick=${() => setMenu(!menu)} aria-label="More options" aria-expanded=${menu} className="grid h-11 w-11 place-items-center rounded-full border border-line bg-surface hover:border-accent"><${Icon} d=${I.more} sw=${3} /></button>
-          ${menu && html`<div className="fade-in absolute right-0 top-12 z-20 w-[230px] overflow-hidden rounded-2xl border border-line bg-surface shadow-card" role="menu">
-            ${sheet.connected && html`<button type="button" role="menuitem" onClick=${() => photoInput.current.click()} className="block w-full px-4 py-3 text-left text-[14px] hover:bg-surface2">${photo ? "Replace item photo" : "Add photo of item"}</button>`}
-            <button type="button" role="menuitem" onClick=${() => { setMenu(false); load(); }} disabled=${!sheet.connected} className="block w-full px-4 py-3 text-left text-[14px] hover:bg-surface2">Re-check the sheet</button>
+    return html`<${Layer} label=${v.name || v.code} innerRef=${scroller} flush=${true}>
+      <div className="flex min-h-full flex-col">
+        <div className="gutter flex-1 pb-6">
+          <div className="flex items-center justify-between gap-3 pt-3">
+            <${BackButton} onClick=${onClose} />
+            <span role="status" className=${"rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide " + pill[0]}>${pill[1]}</span>
+            <div className="relative">
+              <button type="button" onClick=${() => setMenu(!menu)} aria-label="More options" aria-expanded=${menu} className="grid h-11 w-11 place-items-center rounded-full border border-line bg-surface hover:border-accent"><${Icon} d=${I.more} sw=${3} /></button>
+              ${menu && html`<div className="fade-in absolute right-0 top-12 z-20 w-[230px] overflow-hidden rounded-2xl border border-line bg-surface shadow-card" role="menu">
+                ${sheet.connected && html`<button type="button" role="menuitem" onClick=${() => photoInput.current.click()} className="block w-full px-4 py-3 text-left text-[14px] hover:bg-surface2">${photo ? "Replace item photo" : "Add photo of item"}</button>`}
+                <button type="button" role="menuitem" onClick=${() => { setMenu(false); load(); }} disabled=${!sheet.connected} className="block w-full px-4 py-3 text-left text-[14px] hover:bg-surface2">Re-check the sheet</button>
+              </div>`}
+              <input ref=${photoInput} type="file" accept="image/*" capture="environment" hidden onChange=${(e) => { const file = e.target.files[0]; e.target.value = ""; file && addPhoto(file); }} />
+            </div>
+          </div>
+
+          <h1 className="mt-3 font-display text-[1.5rem] font-extrabold leading-[1.15] tracking-tight [overflow-wrap:anywhere] [text-wrap:balance]">${v.name || v.code}</h1>
+          <p className="mt-1.5 text-[13px] text-muted"><span className="font-mono">${v.code}</span>${f.dept ? " · " + f.dept + (f.subdept ? " · " + f.subdept : "") : ""}</p>
+
+          <section className="mt-4 grid grid-cols-[1.2fr_1fr] gap-2.5">
+            <div className="grad-fill rounded-3xl p-3.5 text-accent-ink shadow-glow">
+              <small className="text-[11px] font-semibold uppercase tracking-[.1em] opacity-80">Retail price</small>
+              <b className="mt-0.5 block font-display text-[2rem] font-extrabold leading-none tabular-nums">${money(v.retail)}</b>
+            </div>
+            <div className=${"rounded-3xl border p-3.5 " + (out ? "border-bad bg-bad-soft" : "border-line bg-surface")}>
+              <small className="text-[11px] font-semibold uppercase tracking-[.1em] text-muted">In stock</small>
+              <b className=${"mt-0.5 block font-display text-[2rem] font-extrabold leading-none tabular-nums " + (out ? "text-bad" : "text-fg")}>${qty(v.stock)}</b>
+            </div>
+          </section>
+
+          ${prices.length > 0 && html`<section className="mt-2.5 grid grid-cols-[repeat(auto-fit,minmax(76px,1fr))] gap-2" aria-label="Prices">
+            ${prices.map(([l, x]) => html`<div key=${l} className="min-w-0 rounded-2xl bg-surface2 px-3 py-2"><small className="block truncate text-[11px] text-muted">${l}</small><b className="font-mono text-[0.95rem] tabular-nums">${x}</b></div>`)}
+          </section>`}
+
+          <section className="mt-3 rounded-3xl border border-line bg-surface px-4 py-3" aria-label="Details">
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-[13px]">
+              ${specs.map(([l, x, mono]) => html`<div key=${l} className="min-w-0"><dt className="text-[11px] text-muted">${l}</dt><dd className=${"break-words " + (mono ? "font-mono" : "font-medium")}>${x}</dd></div>`)}
+            </dl>
+          </section>
+
+          ${(photo || uploading) && html`<div className="fade-in mt-3 overflow-hidden rounded-3xl border border-line bg-surface">
+            ${uploading ? html`<div className="skeleton aspect-[16/9] w-full max-w-full"></div>` : html`<img src=${photo.url} alt=${"Photo of " + (v.name || v.code)} className="aspect-[16/9] max-h-56 w-full max-w-full object-cover" />`}
           </div>`}
-          <input ref=${photoInput} type="file" accept="image/*" capture="environment" hidden onChange=${(e) => { const file = e.target.files[0]; e.target.value = ""; file && addPhoto(file); }} />
+
+          ${it.barcode && html`<section className="mt-3 grid justify-items-center gap-1 rounded-3xl border border-line bg-surface px-4 py-3 text-fg"><${BarcodeArt} code=${it.barcode} /></section>`}
+          ${state === "moved" && html`<p className="mt-3 rounded-2xl bg-warn-soft px-4 py-3 text-[13px] text-warn">This item has moved in the sheet since the list was saved. Open Settings and tap “Update search list now” to refresh.</p>`}
+          ${state === "offline" && sheet.connected && html`<p className="mt-3 text-[12px] text-muted">Showing the copy saved ${ago(sheet.meta.syncedAt)}. The sheet couldn't be reached just now.</p>`}
         </div>
-      </div>
 
-      <div className="gutter pb-12">
-        ${(photo || uploading) && html`<div className="fade-in mt-1 overflow-hidden rounded-3xl border border-line bg-surface">
-          ${uploading ? html`<div className="skeleton aspect-[4/3] w-full max-w-full"></div>` : html`<img src=${photo.url} alt=${"Photo of " + (it.name || it.code)} className="aspect-[4/3] w-full max-w-full object-cover" />`}
-        </div>`}
-
-        <section className="fade-in pt-3">
-          <h1 className="font-display text-[1.9rem] font-extrabold leading-[1.08] tracking-tight [text-wrap:balance] break-words">${(live && live.name) || it.name || it.code}</h1>
-          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[13px] text-muted">
-            <span className="font-mono">${it.code}</span>
-            ${f.dept && html`<span>${f.dept}${f.subdept ? " · " + f.subdept : ""}</span>`}
-            ${f.supplier && html`<span>${f.supplier}</span>`}
+        <div className="gutter sticky bottom-0 z-20 border-t border-line bg-bg pt-2.5" style=${{ paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))" }}>
+          <div className="mx-auto grid max-w-[640px] grid-cols-[auto_1fr] gap-2">
+            <${Button} onClick=${onClose}>Back</${Button}>
+            <${Button} kind="primary" className="grad-fill border-transparent" onClick=${onScan}><${Icon} d=${I.scan} size=${20} />Scan next item</${Button}>
           </div>
-        </section>
-
-        <section className="mt-5 grid grid-cols-[1.25fr_1fr] gap-2.5">
-          <div className="relative overflow-hidden rounded-3xl p-4 text-accent-ink grad-fill shadow-glow">
-            <small className="text-[12px] font-semibold uppercase tracking-[.1em] opacity-80">Retail price</small>
-            <b className="mt-1 block font-display text-[2.3rem] font-extrabold leading-none tabular-nums">${money(retail)}</b>
-            ${f.gst && html`<small className="mt-2 block text-[12px] opacity-80">${f.gst === "EXO" ? "GST exempt" : f.gst === "NOR" ? "Includes standard GST" : "Tax " + f.gst}</small>`}
-          </div>
-          <div className=${"rounded-3xl border p-4 " + (out ? "border-bad bg-bad-soft" : "border-line bg-surface")}>
-            <small className="text-[12px] font-semibold uppercase tracking-[.1em] text-muted">In stock</small>
-            <b className=${"mt-1 block font-display text-[2.3rem] font-extrabold leading-none tabular-nums " + (out ? "text-bad" : "text-fg")}>${qty(stock)}</b>
-            <small className=${"mt-2 block text-[12px] " + (out ? "text-bad" : "text-muted")}>${out ? "Out of stock" : live && live.tracked === "-" ? "Not stock-tracked" : "On hand"}</small>
-          </div>
-        </section>
-
-        ${it.barcode && html`<section className="mt-2.5 grid justify-items-center gap-1 rounded-3xl border border-line bg-surface px-4 py-4 text-fg">
-          <${BarcodeArt} code=${it.barcode} />
-          <span className="font-mono text-[15px] tracking-[.18em]">${it.barcode}</span>
-        </section>`}
-
-        <section className="mt-2.5 rounded-3xl border border-line bg-surface p-4">
-          <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[.1em] text-muted">Prices</h2>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            ${price("Trade", money(live && live.trade !== "" ? num(live.trade) : ""))}
-            ${price("Avg cost (PMAP)", money(pmap))}
-            ${price("Last purchase", money(live && live.dpa !== "" && num(live.dpa) ? num(live.dpa) : ""))}
-            ${price("Margin", margin === null ? "—" : margin.toFixed(1) + "%")}
-            ${live && num(live.uscost) ? price("US cost", money(num(live.uscost))) : null}
-          </div>
-          ${!live && !liveErr && html`<div className="mt-2 grid grid-cols-2 gap-2"><div className="skeleton h-12 rounded-xl"></div><div className="skeleton h-12 rounded-xl"></div></div>`}
-        </section>
-
-        ${live && html`<section className="mt-2.5 rounded-3xl border border-line bg-surface px-4 pb-2 pt-4">
-          <h2 className="mb-1 text-[11px] font-semibold uppercase tracking-[.1em] text-muted">Details</h2>
-          <dl className="text-[14px]">
-            ${dl("Supplier", live.supplier)}${dl("Department", live.dept)}${dl("Subdepartment", live.subdept)}${dl("Brand", live.brand)}
-            ${dl("Category", live.category)}${dl("Subcategory", live.subcategory)}${dl("Item type", live.type)}${dl("Reference", live.ref)}
-            ${dl("Collection", live.collection)}${dl("By how many", live.byHowMany)}${dl("Scale item", live.scale)}${dl("Sheet row", String(it.row))}
-          </dl>
-        </section>`}
-
-        ${liveErr && html`<p className="mt-3 rounded-2xl bg-surface2 px-4 py-3 text-[13px] text-muted">${liveErr.code === "row_moved"
-          ? "This item has moved in the sheet. Refresh the list in Sheet settings to see its current numbers."
-          : sheetError(liveErr).title + ". Showing numbers saved " + ago(sheet.meta.syncedAt) + "."}</p>`}
-
-        <button type="button" onClick=${onScan} className="grad-fill mt-6 flex min-h-[56px] w-full items-center justify-center gap-2 rounded-2xl text-[16px] font-bold text-accent-ink shadow-glow active:scale-[.98]">
-          <${Icon} d=${I.scan} size=${22} />Scan next item</button>
+        </div>
       </div>
     </${Layer}>`;
   }
 
-  function NotFoundLayer({ code, syncing, onClose, onScan, onSearch }) {
-    return html`<${Sheet} title="Not in the sheet" sub=${html`<span className="font-mono">${code}</span>`} onClose=${onClose}>
-      <p className="my-3 text-[14px] text-muted">${syncing ? "The item list is still downloading and the sheet doesn't have this barcode yet. Wait a moment and scan again, or search by name." : "No item has this barcode or code. The barcode may be missing from the sheet, so try searching by name."}</p>
+  function NotFoundLayer({ code, state, progress, onClose, onScan, onSearch }) {
+    const checking = state === "checking";
+    return html`<${Sheet} title=${checking ? "Checking the sheet…" : "Not in the sheet"} sub=${html`<span className="font-mono">${code}</span>`} onClose=${onClose}>
+      ${checking ? html`<div className="my-4 grid gap-3" role="status"><div className="skeleton h-3 w-2/3 rounded"></div><div className="skeleton h-3 w-1/2 rounded"></div>
+          <p className="text-[13px] text-muted">This barcode isn't in the saved list, so the sheet is being asked directly. That takes a few seconds.</p></div>`
+      : html`<p className="my-3 text-[14px] text-muted">${progress ? "The item list is still downloading (" + progress + "%) and the sheet doesn't have this barcode yet. Wait a moment and scan again, or search by name." : "No item has this barcode or code. The barcode may be missing from the sheet, so try searching by name."}</p>`}
       <div className="grid grid-cols-2 gap-2"><${Button} onClick=${onSearch}>Search by name</${Button}><${Button} kind="primary" className="grad-fill border-transparent" onClick=${onScan}>Scan again</${Button}></div>
     </${Sheet}>`;
   }
@@ -1219,18 +1318,19 @@
       setLayer({ kind: "item", item: it });
       setRecent((r) => [it.row, ...r.filter((x) => x !== it.row)].slice(0, 12));
     }, []);
+    const lookupId = useRef(0);
     const handleCode = useCallback(async (raw) => {
       const code = String(raw).trim(); setScan(null); if (!code) return;
       const sh = sheetRef.current;
       const it = sh.find(code);
       if (it) return openItem(it);
-      // Not in the saved list (still downloading, or added to the sheet recently): ask the sheet directly.
-      if (sh.connected) {
-        setToastMsg({ text: "Checking the sheet…", id: Date.now() });
-        try { const hit = await sh.findLive(code); if (hit) { setToastMsg(null); return openItem(hit); } } catch {}
-        setToastMsg(null);
-      }
-      setLayer({ kind: "notfound", code });
+      // Not in the saved list (still downloading, or added to the sheet recently): ask the sheet directly, with a visible "checking" panel.
+      const id = ++lookupId.current;
+      if (!sh.connected) { setLayer({ kind: "notfound", code, state: "none" }); return; }
+      setLayer({ kind: "notfound", code, state: "checking" });
+      let hit = null; try { hit = await sh.findLive(code); } catch {}
+      if (id !== lookupId.current) return;     // closed or replaced by another scan meanwhile
+      if (hit) openItem(hit); else setLayer({ kind: "notfound", code, state: "none" });
     }, [openItem]);
     // Once live camera is known to be blocked here, open the phone camera straight from the tap.
     const startScan = () => {
@@ -1266,7 +1366,7 @@
       ${layer && layer.kind === "search" && html`<${SearchLayer} sheet=${sheet} recent=${recent} onOpen=${openItem} onClose=${() => setLayer(null)} />`}
       ${layer && layer.kind === "settings" && html`<${SettingsLayer} sheet=${sheet} toast=${toast} onClose=${() => setLayer(null)} />`}
       ${current && html`<${ItemLayer} key=${current.row} it=${current} sheet=${sheet} toast=${toast} onClose=${() => setLayer(null)} onScan=${startScan} />`}
-      ${layer && layer.kind === "notfound" && html`<${NotFoundLayer} code=${layer.code} syncing=${sheet.status.kind === "syncing"} onClose=${() => setLayer(null)} onScan=${() => { setLayer(null); startScan(); }}
+      ${layer && layer.kind === "notfound" && html`<${NotFoundLayer} code=${layer.code} state=${layer.state} progress=${sheet.status.kind === "syncing" && sheet.status.total ? Math.round((sheet.status.done / sheet.status.total) * 100) : 0} onClose=${() => { lookupId.current++; setLayer(null); }} onScan=${() => { lookupId.current++; setLayer(null); startScan(); }}
         onSearch=${() => setLayer({ kind: "search" })} />`}
       ${scan && html`<${Scanner} initialFile=${scan.file} onClose=${() => setScan(null)} onCode=${handleCode} />`}
       <${Toast} msg=${toastMsg} />`;

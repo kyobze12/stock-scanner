@@ -1,8 +1,8 @@
 /* Keeps the app's own files on the phone so it opens instantly and works offline.
    Your item data is not stored here; it lives in the app's IndexedDB. Calls to Google are never intercepted. */
-const BUILD = "35a3c2bcca";
+const BUILD = "fd34b5aad9";
 const CACHE = "ftc-" + BUILD;
-const PRECACHE = ["./","app.20af36e429.css","app.474d3985bf.js","fonts/bricolage-grotesque-latin-wght-normal.woff2","fonts/ibm-plex-mono-latin-400-normal.woff2","fonts/ibm-plex-mono-latin-600-normal.woff2","fonts/public-sans-latin-wght-normal.woff2","icon-180.png","icon-192.png","icon-512.png","icon.svg","index.html","manifest.webmanifest","scan-worker.2031b8c745.js","vendor/htm-3.1.1.umd.js","vendor/react-18.2.0.production.min.js","vendor/react-dom-18.2.0.production.min.js","vendor/zxing-0.21.3.min.js"];
+const PRECACHE = ["./","app.5670a72d68.js","app.74fdcfe8af.css","fonts/bricolage-grotesque-latin-wght-normal.woff2","fonts/ibm-plex-mono-latin-400-normal.woff2","fonts/ibm-plex-mono-latin-600-normal.woff2","fonts/public-sans-latin-wght-normal.woff2","icon-180.png","icon-192.png","icon-512.png","icon.svg","index.html","manifest.webmanifest","scan-worker.2031b8c745.js","vendor/htm-3.1.1.umd.js","vendor/react-18.2.0.production.min.js","vendor/react-dom-18.2.0.production.min.js","vendor/zxing-0.21.3.min.js"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(PRECACHE.map((u) => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting()));
